@@ -1,0 +1,131 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "PackVisionApp/1.0.0": {
+        "dependencies": {
+          "OpenCvSharp4": "4.13.0.20260318",
+          "OpenCvSharp4.Extensions": "4.13.0.20260318",
+          "OpenCvSharp4.Windows": "4.13.0.20260302",
+          "OpenCvSharp4.runtime.win": "4.13.0.20260302",
+          "ZXing.Net": "0.16.11"
+        },
+        "runtime": {
+          "PackVisionApp.dll": {}
+        }
+      },
+      "OpenCvSharp4/4.13.0.20260318": {
+        "runtime": {
+          "lib/net8.0/OpenCvSharp.dll": {
+            "assemblyVersion": "4.13.0.0",
+            "fileVersion": "4.13.0.0"
+          }
+        }
+      },
+      "OpenCvSharp4.Extensions/4.13.0.20260318": {
+        "dependencies": {
+          "OpenCvSharp4": "4.13.0.20260318"
+        },
+        "runtime": {
+          "lib/net8.0/OpenCvSharp.Extensions.dll": {
+            "assemblyVersion": "4.13.0.0",
+            "fileVersion": "4.13.0.0"
+          }
+        }
+      },
+      "OpenCvSharp4.runtime.win/4.13.0.20260302": {
+        "runtimeTargets": {
+          "runtimes/win-x64/native/OpenCvSharpExtern.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/opencv_videoio_ffmpeg4130_64.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "2025.12.0.0"
+          }
+        }
+      },
+      "OpenCvSharp4.Windows/4.13.0.20260302": {
+        "dependencies": {
+          "OpenCvSharp4": "4.13.0.20260318",
+          "OpenCvSharp4.WpfExtensions": "4.13.0.20260302",
+          "OpenCvSharp4.runtime.win": "4.13.0.20260302"
+        }
+      },
+      "OpenCvSharp4.WpfExtensions/4.13.0.20260302": {
+        "dependencies": {
+          "OpenCvSharp4": "4.13.0.20260318"
+        },
+        "runtime": {
+          "lib/net8.0-windows7.0/OpenCvSharp.WpfExtensions.dll": {
+            "assemblyVersion": "4.13.0.0",
+            "fileVersion": "4.13.0.0"
+          }
+        }
+      },
+      "ZXing.Net/0.16.11": {
+        "runtime": {
+          "lib/net9.0/zxing.dll": {
+            "assemblyVersion": "0.16.11.0",
+            "fileVersion": "0.16.11.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "PackVisionApp/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "OpenCvSharp4/4.13.0.20260318": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-DD3ub2N4/ldIbcsIt03lSSVCqKCImaIMPjud+3G7ikj/RUa//BV59iuh924hTjR+ghTQW6r+h2KbjMzJT4EuRQ==",
+      "path": "opencvsharp4/4.13.0.20260318",
+      "hashPath": "opencvsharp4.4.13.0.20260318.nupkg.sha512"
+    },
+    "OpenCvSharp4.Extensions/4.13.0.20260318": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-i3ZqhHrDrmtNVnidVjwtw7ZVLdOCWn6zRx6ADN+ZJ9VVsWStUrs6y+bczR5NNbpLCqCa3UZSt18Nt3qah+hefA==",
+      "path": "opencvsharp4.extensions/4.13.0.20260318",
+      "hashPath": "opencvsharp4.extensions.4.13.0.20260318.nupkg.sha512"
+    },
+    "OpenCvSharp4.runtime.win/4.13.0.20260302": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-VC2n9CVZQvAm+p0NXW077e/MGkDBraT3ye4FdInRPpxTVK64DwGnLuIncS8mwrkVcKhqh82/KgcDgKXNWDndAA==",
+      "path": "opencvsharp4.runtime.win/4.13.0.20260302",
+      "hashPath": "opencvsharp4.runtime.win.4.13.0.20260302.nupkg.sha512"
+    },
+    "OpenCvSharp4.Windows/4.13.0.20260302": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-w1ERU3njYJRCxM1wdkt7Gg9tD7NJE4J2jSuYX1YD9nrVaOTZl69gsr+wfPH62vKlwg9gd4wDIGN4VLfAxGL73A==",
+      "path": "opencvsharp4.windows/4.13.0.20260302",
+      "hashPath": "opencvsharp4.windows.4.13.0.20260302.nupkg.sha512"
+    },
+    "OpenCvSharp4.WpfExtensions/4.13.0.20260302": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-CqKYxZlfPlL+Em/GCqa00KJqpMlu/hdZYMR/ldovrKE6A7b0xCO7PZTtB/mQBd/FvENmwRp4R1R0T/Uqw17RfQ==",
+      "path": "opencvsharp4.wpfextensions/4.13.0.20260302",
+      "hashPath": "opencvsharp4.wpfextensions.4.13.0.20260302.nupkg.sha512"
+    },
+    "ZXing.Net/0.16.11": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-OZfAVu88hl87BffQ+rlWCj/vLvAhhCK4QnFaoveeF/MY8SjHNSYBQ3qyUEWlPKNgBQGh1syXhCDg10vUnCsqkg==",
+      "path": "zxing.net/0.16.11",
+      "hashPath": "zxing.net.0.16.11.nupkg.sha512"
+    }
+  }
+}
