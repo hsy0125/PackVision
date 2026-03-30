@@ -5,11 +5,15 @@ using System.Data;
 using System.Drawing;
 using System.Text;
 using System.Windows.Forms;
+using PackVisionApp.Managers;
+using PackVisionApp.Models;
 
 namespace PackVisionApp.UI
 {
 	public partial class MainForm : Form
 	{
+		// 필드 추가
+		private InspectionManager _inspectionManager = new InspectionManager();
 		// 사용자가 제출한 기준 날짜
 		private string _expectedDate = "";
 
@@ -142,64 +146,52 @@ namespace PackVisionApp.UI
 		/// </summary>
 		private void btnRun_Click(object sender, EventArgs e)
 		{
-			// 이미지가 없는 경우 검사 불가
 			if (pictureBoxFrame.Image == null)
 			{
 				MessageBox.Show("먼저 이미지를 불러오세요.");
 				return;
 			}
 
-			// 기준값이 없는 경우 검사 불가
 			if (string.IsNullOrWhiteSpace(_expectedDate) || string.IsNullOrWhiteSpace(_expectedBarcode))
 			{
 				MessageBox.Show("먼저 기준 날짜와 기준 바코드를 제출하세요.");
 				return;
 			}
 
-			// TODO:
-			// 나중에 실제 바코드 인식 결과 / 날짜 인식 결과로 교체
+			// TODO: 나중에 실제 결과로 교체
 			string readBarcode = "880106262476";
-			string readDate = "2026-09-21";
+			string readDate = "26-09-21";
+			bool isPrintOk = true;
 
-			bool isBarcodeOk = readBarcode == _expectedBarcode;
-			bool isDateOk = readDate == _expectedDate;
+			// 🔥 핵심: Manager 사용
+			InspectionResult result = _inspectionManager.Inspect(
+				_expectedBarcode,
+				readBarcode,
+				_expectedDate,
+				readDate,
+				isPrintOk
+			);
 
-			// 총 검사 횟수 증가
+			// 검사 횟수 증가
 			_totalInspectionCount++;
 
-			if (isBarcodeOk && isDateOk)
+			if (result.IsOverallOk)
 			{
-				// OK 횟수 증가
 				_okInspectionCount++;
 
-				// 화면에 OK 표시
 				lblResult.Text = "OK";
 				lblResult.ForeColor = Color.LimeGreen;
 
-				// ListView에 OK 로그 추가
-				AddLogItem("OK", "-", readDate, readBarcode, Color.Green);
+				AddLogItem("OK", "-", result.ActualDate, result.ActualBarcode, Color.Green);
 			}
 			else
 			{
-				// 화면에 NOK 표시
 				lblResult.Text = "NOK";
 				lblResult.ForeColor = Color.Red;
 
-				string failReason;
-
-				// 실패 원인 분기
-				if (!isBarcodeOk && !isDateOk)
-					failReason = "BD";   // Barcode + Date 둘 다 실패
-				else if (!isBarcodeOk)
-					failReason = "B";    // Barcode 실패
-				else
-					failReason = "D";    // Date 실패
-
-				// ListView에 NOK 로그 추가
-				AddLogItem("NOK", failReason, readDate, readBarcode, Color.Red);
+				AddLogItem("NOK", result.FailReasonText, result.ActualDate, result.ActualBarcode, Color.Red);
 			}
 
-			// 검사율 업데이트
 			UpdateInspectionRate();
 		}
 

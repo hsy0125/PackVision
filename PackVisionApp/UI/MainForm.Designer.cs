@@ -49,6 +49,8 @@
 			imageOpenToolStripMenuItem = new ToolStripMenuItem();
 			imageToolStripMenuItem = new ToolStripMenuItem();
 			imageSaveToolStripMenuItem = new ToolStripMenuItem();
+			label2 = new Label();
+			label1 = new Label();
 			_imagePanel.SuspendLayout();
 			((System.ComponentModel.ISupportInitialize)pictureBoxFrame).BeginInit();
 			panel1.SuspendLayout();
@@ -62,7 +64,7 @@
 			// 
 			btnRun.Location = new Point(926, 14);
 			btnRun.Name = "btnRun";
-			btnRun.Size = new Size(169, 70);
+			btnRun.Size = new Size(169, 55);
 			btnRun.TabIndex = 0;
 			btnRun.Text = "RUN";
 			btnRun.UseVisualStyleBackColor = true;
@@ -72,7 +74,7 @@
 			// 
 			btnStop.Location = new Point(1101, 14);
 			btnStop.Name = "btnStop";
-			btnStop.Size = new Size(169, 70);
+			btnStop.Size = new Size(169, 55);
 			btnStop.TabIndex = 1;
 			btnStop.Text = "STOP";
 			btnStop.UseVisualStyleBackColor = true;
@@ -116,6 +118,8 @@
 			// 
 			// panel1
 			// 
+			panel1.Controls.Add(label1);
+			panel1.Controls.Add(label2);
 			panel1.Controls.Add(btnBarcode);
 			panel1.Controls.Add(btnDate);
 			panel1.Controls.Add(txtBarcode);
@@ -251,6 +255,24 @@
 			imageSaveToolStripMenuItem.Text = "ImageSave";
 			imageSaveToolStripMenuItem.Click += imageSaveToolStripMenuItem_Click;
 			// 
+			// label2
+			// 
+			label2.AutoSize = true;
+			label2.Location = new Point(11, 3);
+			label2.Name = "label2";
+			label2.Size = new Size(98, 25);
+			label2.TabIndex = 7;
+			label2.Text = "yy-mm-dd";
+			// 
+			// label1
+			// 
+			label1.AutoSize = true;
+			label1.Location = new Point(446, 7);
+			label1.Name = "label1";
+			label1.Size = new Size(79, 25);
+			label1.TabIndex = 8;
+			label1.Text = "Barcode";
+			// 
 			// MainForm
 			// 
 			AutoScaleDimensions = new SizeF(10F, 25F);
@@ -303,5 +325,7 @@
 		private Label lblInspectionSummary;
 		private Label lblResult;
 		private ListView lvLogs;
+		private Label label1;
+		private Label label2;
 	}
 }
