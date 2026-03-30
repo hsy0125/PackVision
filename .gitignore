@@ -1,0 +1,44 @@
+﻿# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build results
+bin/
+obj/
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+
+# Cache
+*.cache
+
+# Temp files
+*.tmp
+*.temp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Debug images (선택 - 저장 안할거면)
+DebugImages/
+
+# Test results
+TestResults/
+
+# NuGet
+packages/
+*.nupkg
+
+# Rider / 기타 IDE
+.idea/
+
+# Backup
+*.bak
+*.old
