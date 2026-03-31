@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "ata/d0qGHJM=",
+  "dgSpecHash": "U+cTacB6sRQ=",
   "success": true,
-  "projectFilePath": "C:\\Users\\user\\Desktop\\PackVision\\PackVisionApp\\PackVisionApp.csproj",
+  "projectFilePath": "C:\\Users\\user\\Desktop\\새 폴더 (2)\\PackVisionApp\\PackVisionApp.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\user\\.nuget\\packages\\opencvsharp4\\4.13.0.20260318\\opencvsharp4.4.13.0.20260318.nupkg.sha512",
     "C:\\Users\\user\\.nuget\\packages\\opencvsharp4.extensions\\4.13.0.20260318\\opencvsharp4.extensions.4.13.0.20260318.nupkg.sha512",
