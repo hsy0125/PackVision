@@ -1,35 +1,38 @@
-﻿using PackVisionApp.Managers;
-using PackVisionApp.Vision;
-using System;
+﻿using System;
 using System.Drawing;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Diagnostics;
+using PackVisionApp.Managers;
+using PackVisionApp.Models;
+using PackVisionApp.Vision;
 
 namespace PackVisionApp.UI
 {
     public partial class MainForm : Form
     {
-        private Stopwatch _fpsSw = new Stopwatch();
-        private PackageTracker _packageTracker = new PackageTracker();
-        private CameraManager _cameraMgr = new CameraManager();
+        // ─── 소영씨 필드 ───
         private InspectionManager _inspectionMgr = new InspectionManager();
+        private string _expectedDate = "";
+        private string _expectedBarcode = "";
+        private int _totalInspectionCount = 0;
+        private int _okInspectionCount = 0;
+
+        // ─── 민영씨 필드 ───
+        private CameraManager _cameraMgr = new CameraManager();
+        private PackageTracker _packageTracker = new PackageTracker();
+        private Stopwatch _fpsSw = new Stopwatch();
+        private int _isTrackingBusy = 0;
 
         private Point _startPoint;
         private Rectangle _selectionRect;
         private bool _isSelecting = false;
-
-        // 화면에 그릴 박스 좌표
-        private Rectangle _packageScreenRect;  // 초록 박스
-        private Rectangle _dateScreenRect;     // 파란 박스
-        private Rectangle _barcodeScreenRect;  // 노란 박스
-
-        // 현재 어떤 ROI 드래그 중인지
-        // "none" = 포장지 전체, "date" = 날짜, "barcode" = 바코드
         private string _roiMode = "none";
 
-        private int _isTrackingBusy = 0;
+        private Rectangle _packageScreenRect;
+        private Rectangle _dateScreenRect;
+        private Rectangle _barcodeScreenRect;
 
         public MainForm()
         {
@@ -37,36 +40,12 @@ namespace PackVisionApp.UI
             _cameraMgr.FrameUpdated += OnFrameUpdated;
             btnDateRoi.Click += btnDateRoi_Click;
             btnBarcodeRoi.Click += btnBarcodeRoi_Click;
-
-            pbCamera.MouseDown += pbCamera_MouseDown;
-            pbCamera.MouseMove += pbCamera_MouseMove;
-            pbCamera.MouseUp += pbCamera_MouseUp;
-            pbCamera.Paint += pbCamera_Paint;
+            UpdateInspectionRate();
         }
 
-        // 날짜 ROI 버튼
-        private void btnDateRoi_Click(object sender, EventArgs e)
-        {
-            if (!_packageTracker.IsTracking)
-            {
-                MessageBox.Show("먼저 포장지 전체를 드래그해서 잡아주세요!", "안내");
-                return;
-            }
-            _roiMode = "date";
-            MessageBox.Show("날짜 영역을 드래그해주세요!", "날짜 ROI");
-        }
-
-        // 바코드 ROI 버튼
-        private void btnBarcodeRoi_Click(object sender, EventArgs e)
-        {
-            if (!_packageTracker.IsTracking)
-            {
-                MessageBox.Show("먼저 포장지 전체를 드래그해서 잡아주세요!", "안내");
-                return;
-            }
-            _roiMode = "barcode";
-            MessageBox.Show("바코드 영역을 드래그해주세요!", "바코드 ROI");
-        }
+        // ═══════════════════════════════════════
+        // 민영씨 — 카메라 / 트래킹
+        // ═══════════════════════════════════════
 
         private void OnFrameUpdated(Bitmap bmp)
         {
@@ -102,15 +81,17 @@ namespace PackVisionApp.UI
 
                     this.BeginInvoke(new Action(() =>
                     {
-                        // 화면 좌표 업데이트
                         if (_packageTracker.IsTracking)
-                            _packageScreenRect = ImageRectToScreenRect(_packageTracker.GetPackageRect());
+                            _packageScreenRect = ImageRectToScreenRect(
+                                _packageTracker.GetPackageRect());
 
                         if (_packageTracker.IsDateRoiSet)
-                            _dateScreenRect = ImageRectToScreenRect(_packageTracker.GetDateRect());
+                            _dateScreenRect = ImageRectToScreenRect(
+                                _packageTracker.GetDateRect());
 
                         if (_packageTracker.IsBarcodeRoiSet)
-                            _barcodeScreenRect = ImageRectToScreenRect(_packageTracker.GetBarcodeRect());
+                            _barcodeScreenRect = ImageRectToScreenRect(
+                                _packageTracker.GetBarcodeRect());
 
                         // InspectionManager에 전달
                         if (_packageTracker.IsTracking)
@@ -126,7 +107,7 @@ namespace PackVisionApp.UI
                             }
                         }
 
-                        // 디버그 출력
+                        // 디버그 좌표 출력
                         string debugText = "";
                         if (_packageTracker.IsTracking)
                         {
@@ -145,23 +126,44 @@ namespace PackVisionApp.UI
                         }
                         lblDebug.Text = debugText;
 
-                        Image oldImage = pbCamera.Image;
-                        pbCamera.Image = bmpForDisplay;
+                        Image oldImage = pictureBoxFrame.Image;
+                        pictureBoxFrame.Image = bmpForDisplay;
                         oldImage?.Dispose();
 
-                        pbCamera.Invalidate();
+                        pictureBoxFrame.Invalidate();
                     }));
                 });
             }
             else
             {
-                Image oldImage = pbCamera.Image;
-                pbCamera.Image = bmpForDisplay;
+                Image oldImage = pictureBoxFrame.Image;
+                pictureBoxFrame.Image = bmpForDisplay;
                 oldImage?.Dispose();
-                pbCamera.Invalidate();
+                pictureBoxFrame.Invalidate();
             }
         }
 
+        private void btnDateRoi_Click(object sender, EventArgs e)
+        {
+            if (!_packageTracker.IsTracking)
+            {
+                MessageBox.Show("먼저 포장지 전체를 드래그해서 잡아주세요!", "안내");
+                return;
+            }
+            _roiMode = "date";
+            MessageBox.Show("날짜 영역을 드래그해주세요!", "날짜 ROI");
+        }
+
+        private void btnBarcodeRoi_Click(object sender, EventArgs e)
+        {
+            if (!_packageTracker.IsTracking)
+            {
+                MessageBox.Show("먼저 포장지 전체를 드래그해서 잡아주세요!", "안내");
+                return;
+            }
+            _roiMode = "barcode";
+            MessageBox.Show("바코드 영역을 드래그해주세요!", "바코드 ROI");
+        }
 
         private void pbCamera_MouseDown(object sender, MouseEventArgs e)
         {
@@ -183,7 +185,7 @@ namespace PackVisionApp.UI
                 int height = Math.Abs(_startPoint.Y - e.Y);
 
                 _selectionRect = new Rectangle(x, y, width, height);
-                pbCamera.Invalidate();
+                pictureBoxFrame.Invalidate();
             }
         }
 
@@ -195,7 +197,7 @@ namespace PackVisionApp.UI
 
                 if (_selectionRect.Width > 10 && _selectionRect.Height > 10)
                 {
-                    if (pbCamera.Image != null)
+                    if (pictureBoxFrame.Image != null)
                     {
                         Rectangle imageRect = ScreenRectToImageRect(_selectionRect);
 
@@ -203,20 +205,17 @@ namespace PackVisionApp.UI
                         {
                             if (_roiMode == "date")
                             {
-                                // 날짜 ROI → 비율로 저장
                                 _packageTracker.SetDateRoi(imageRect);
                                 _roiMode = "none";
                             }
                             else if (_roiMode == "barcode")
                             {
-                                // 바코드 ROI → 비율로 저장
                                 _packageTracker.SetBarcodeRoi(imageRect);
                                 _roiMode = "none";
                             }
                             else
                             {
-                                // 포장지 전체 드래그 → 초록 박스
-                                Bitmap currentImg = (Bitmap)pbCamera.Image.Clone();
+                                Bitmap currentImg = (Bitmap)pictureBoxFrame.Image.Clone();
                                 _packageTracker.SetTarget(currentImg, imageRect);
                                 currentImg.Dispose();
                             }
@@ -225,34 +224,30 @@ namespace PackVisionApp.UI
                 }
 
                 _selectionRect = Rectangle.Empty;
-                pbCamera.Invalidate();
+                pictureBoxFrame.Invalidate();
             }
         }
 
         private void pbCamera_Paint(object sender, PaintEventArgs e)
         {
-            // 드래그 중 빨간 박스
             if (_selectionRect.Width > 0 && _selectionRect.Height > 0)
             {
                 using (Pen pen = new Pen(Color.Red, 2))
                     e.Graphics.DrawRectangle(pen, _selectionRect);
             }
 
-            // 포장지 전체 — 초록 박스
             if (_packageTracker.IsTracking && _packageScreenRect != Rectangle.Empty)
             {
                 using (Pen greenPen = new Pen(Color.Lime, 3))
                     e.Graphics.DrawRectangle(greenPen, _packageScreenRect);
             }
 
-            // 날짜 ROI — 파란 박스
             if (_packageTracker.IsDateRoiSet && _dateScreenRect != Rectangle.Empty)
             {
                 using (Pen bluePen = new Pen(Color.Blue, 3))
                     e.Graphics.DrawRectangle(bluePen, _dateScreenRect);
             }
 
-            // 바코드 ROI — 노란 박스
             if (_packageTracker.IsBarcodeRoiSet && _barcodeScreenRect != Rectangle.Empty)
             {
                 using (Pen yellowPen = new Pen(Color.Yellow, 3))
@@ -260,34 +255,32 @@ namespace PackVisionApp.UI
             }
         }
 
-        // 화면 좌표 → 이미지 좌표
         private Rectangle ScreenRectToImageRect(Rectangle screenRect)
         {
-            if (pbCamera.Image == null) return Rectangle.Empty;
+            if (pictureBoxFrame.Image == null) return Rectangle.Empty;
 
-            float scaleX = (float)pbCamera.Image.Width / pbCamera.Width;
-            float scaleY = (float)pbCamera.Image.Height / pbCamera.Height;
+            float scaleX = (float)pictureBoxFrame.Image.Width / pictureBoxFrame.Width;
+            float scaleY = (float)pictureBoxFrame.Image.Height / pictureBoxFrame.Height;
 
             int x = (int)(screenRect.X * scaleX);
             int y = (int)(screenRect.Y * scaleY);
             int w = (int)(screenRect.Width * scaleX);
             int h = (int)(screenRect.Height * scaleY);
 
-            x = Math.Max(0, Math.Min(x, pbCamera.Image.Width - 1));
-            y = Math.Max(0, Math.Min(y, pbCamera.Image.Height - 1));
-            w = Math.Min(w, pbCamera.Image.Width - x);
-            h = Math.Min(h, pbCamera.Image.Height - y);
+            x = Math.Max(0, Math.Min(x, pictureBoxFrame.Image.Width - 1));
+            y = Math.Max(0, Math.Min(y, pictureBoxFrame.Image.Height - 1));
+            w = Math.Min(w, pictureBoxFrame.Image.Width - x);
+            h = Math.Min(h, pictureBoxFrame.Image.Height - y);
 
             return new Rectangle(x, y, w, h);
         }
 
-        // 이미지 좌표 → 화면 좌표
         private Rectangle ImageRectToScreenRect(Rectangle imageRect)
         {
-            if (pbCamera.Image == null) return Rectangle.Empty;
+            if (pictureBoxFrame.Image == null) return Rectangle.Empty;
 
-            float scaleX = (float)pbCamera.Width / pbCamera.Image.Width;
-            float scaleY = (float)pbCamera.Height / pbCamera.Image.Height;
+            float scaleX = (float)pictureBoxFrame.Width / pictureBoxFrame.Image.Width;
+            float scaleY = (float)pictureBoxFrame.Height / pictureBoxFrame.Image.Height;
 
             int x = (int)(imageRect.X * scaleX);
             int y = (int)(imageRect.Y * scaleY);
@@ -297,9 +290,65 @@ namespace PackVisionApp.UI
             return new Rectangle(x, y, w, h);
         }
 
-        private async void btnStop_Click_1(object sender, EventArgs e)
+        // ═══════════════════════════════════════
+        // 소영씨 — RUN/STOP / 로그 / OK/NOK
+        // ═══════════════════════════════════════
+
+        private void btnRun_Click(object sender, EventArgs e)
         {
-            btnStart.Enabled = true;
+            bool success = _cameraMgr.StartCamera();
+            if (success)
+            {
+                btnRun.Enabled = false;
+                btnStop.Enabled = true;
+                _fpsSw.Restart();
+                return;
+            }
+
+            if (pictureBoxFrame.Image == null)
+            {
+                MessageBox.Show("카메라 연결 실패 또는 이미지를 먼저 불러오세요.");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(_expectedDate) ||
+                string.IsNullOrWhiteSpace(_expectedBarcode))
+            {
+                MessageBox.Show("먼저 기준 날짜와 기준 바코드를 제출하세요.");
+                return;
+            }
+
+            string readBarcode = "880106262476";
+            string readDate = "26-09-21";
+            bool isPrintOk = true;
+
+            InspectionResult result = _inspectionMgr.Inspect(
+                _expectedBarcode, readBarcode,
+                _expectedDate, readDate, isPrintOk);
+
+            _totalInspectionCount++;
+
+            if (result.IsOverallOk)
+            {
+                _okInspectionCount++;
+                lblResult.Text = "OK";
+                lblResult.ForeColor = Color.LimeGreen;
+                AddLogItem("OK", "-", result.ActualDate, result.ActualBarcode, Color.Green);
+            }
+            else
+            {
+                lblResult.Text = "NOK";
+                lblResult.ForeColor = Color.Red;
+                AddLogItem("NOK", result.FailReasonText,
+                    result.ActualDate, result.ActualBarcode, Color.Red);
+            }
+
+            UpdateInspectionRate();
+        }
+
+        private async void btnStop_Click(object sender, EventArgs e)
+        {
+            btnRun.Enabled = true;
             btnStop.Enabled = false;
 
             await _cameraMgr.StopCameraAsync();
@@ -310,24 +359,121 @@ namespace PackVisionApp.UI
             _barcodeScreenRect = Rectangle.Empty;
             _roiMode = "none";
 
-            Image oldImage = pbCamera.Image;
-            pbCamera.Image = null;
+            Image oldImage = pictureBoxFrame.Image;
+            pictureBoxFrame.Image = null;
             oldImage?.Dispose();
         }
 
-        private void btnStart_Click_1(object sender, EventArgs e)
+        private void btnDate_Click(object sender, EventArgs e)
         {
-            bool success = _cameraMgr.StartCamera();
-            if (success)
+            _expectedDate = txtDate.Text.Trim();
+            if (string.IsNullOrWhiteSpace(_expectedDate))
             {
-                btnStart.Enabled = false;
-                btnStop.Enabled = true;
-                _fpsSw.Restart();
+                MessageBox.Show("날짜를 입력하세요.");
+                return;
             }
-            else
+            MessageBox.Show("기준 날짜 저장 완료: " + _expectedDate);
+        }
+
+        private void btnBarcode_Click(object sender, EventArgs e)
+        {
+            _expectedBarcode = txtBarcode.Text.Trim();
+            if (string.IsNullOrWhiteSpace(_expectedBarcode))
             {
-                MessageBox.Show("카메라 연결에 실패했습니다.");
+                MessageBox.Show("바코드를 입력하세요.");
+                return;
+            }
+            MessageBox.Show("기준 바코드 저장 완료: " + _expectedBarcode);
+        }
+
+        private void UpdateInspectionRate()
+        {
+            int rate = 0;
+            if (_totalInspectionCount > 0)
+                rate = (int)Math.Round(
+                    (_okInspectionCount / (double)_totalInspectionCount) * 100.0);
+
+            lblInspectionRate.Text = rate + "%";
+            lblInspectionCount.Text = "총 검사 개수";
+            lblInspectionSummary.Text = $"{_okInspectionCount}/{_totalInspectionCount}";
+        }
+
+        private void AddLogItem(string result, string reason,
+            string date, string barcode, Color color)
+        {
+            ListViewItem item = new ListViewItem(result);
+            item.SubItems.Add(DateTime.Now.ToString("HH:mm:ss"));
+            item.SubItems.Add(reason);
+            item.SubItems.Add(date);
+            item.SubItems.Add(barcode);
+            item.ForeColor = color;
+            lvLogs.Items.Insert(0, item);
+        }
+
+        private void MainForm_Load(object sender, EventArgs e)
+        {
+            lvLogs.Columns.Clear();
+            lvLogs.View = View.Details;
+            lvLogs.FullRowSelect = true;
+            lvLogs.GridLines = true;
+            lvLogs.Columns.Add("Result", 80);
+            lvLogs.Columns.Add("Time", 100);
+            lvLogs.Columns.Add("Reason", 100);
+            lvLogs.Columns.Add("Date", 120);
+            lvLogs.Columns.Add("Barcode", 180);
+        }
+
+        private void imageToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            using (OpenFileDialog ofd = new OpenFileDialog())
+            {
+                ofd.Title = "이미지 선택";
+                ofd.Filter = "Image Files|*.jpg;*.jpeg;*.png;*.bmp";
+                if (ofd.ShowDialog() == DialogResult.OK)
+                {
+                    try
+                    {
+                        pictureBoxFrame.Image?.Dispose();
+                        pictureBoxFrame.Image = new Bitmap(ofd.FileName);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("이미지 로드 실패: " + ex.Message);
+                    }
+                }
             }
         }
+
+        private void imageSaveToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (pictureBoxFrame.Image == null)
+            {
+                MessageBox.Show("저장할 이미지가 없습니다.");
+                return;
+            }
+
+            using (SaveFileDialog sfd = new SaveFileDialog())
+            {
+                sfd.Title = "이미지 저장";
+                sfd.Filter = "PNG Image|*.png|JPEG Image|*.jpg|Bitmap Image|*.bmp";
+                sfd.DefaultExt = "png";
+                sfd.FileName = "saved_image";
+                if (sfd.ShowDialog() == DialogResult.OK)
+                {
+                    try
+                    {
+                        pictureBoxFrame.Image.Save(sfd.FileName);
+                        MessageBox.Show("이미지 저장 완료");
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("이미지 저장 실패: " + ex.Message);
+                    }
+                }
+            }
+        }
+
+        private void imageOpenToolStripMenuItem_Click(object sender, EventArgs e) { }
+        private void _pictureBoxFrame_Click(object sender, EventArgs e) { }
     }
 }
