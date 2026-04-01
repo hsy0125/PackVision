@@ -7,6 +7,8 @@ using System.Text;
 using System.Windows.Forms;
 using PackVisionApp.Managers;
 using PackVisionApp.Models;
+using PackVisionApp.Vision;
+using ZXing;
 
 namespace PackVisionApp.UI
 {
@@ -28,7 +30,16 @@ namespace PackVisionApp.UI
 
 		public object Global { get; private set; }
 
-		public MainForm()
+        //바코드 
+        private BarcodeReader _barcodeReader = new BarcodeReader();
+
+        //날짜
+        private DateReader _dateReader = new DateReader();
+
+		//영역
+        private PackageTracker _packageTracker = new PackageTracker();
+
+        public MainForm()
 		{
 			InitializeComponent();
 
@@ -140,65 +151,105 @@ namespace PackVisionApp.UI
 			MessageBox.Show("기준 바코드 저장 완료: " + _expectedBarcode);
 		}
 
-		/// <summary>
-		/// RUN 버튼 클릭 시 실행
-		/// 현재는 더미값으로 판정하고, 나중에 실제 ZXing/OCR 결과로 교체하면 됨
-		/// </summary>
-		private void btnRun_Click(object sender, EventArgs e)
-		{
-			if (pictureBoxFrame.Image == null)
-			{
-				MessageBox.Show("먼저 이미지를 불러오세요.");
-				return;
-			}
+        /// <summary>
+        /// RUN 버튼 클릭 시 실행
+        /// 현재는 더미값으로 판정하고, 나중에 실제 ZXing/OCR 결과로 교체하면 됨
+        /// </summary>
+        private void btnRun_Click(object sender, EventArgs e)
+        {
+            if (pictureBoxFrame.Image == null)
+            {
+                MessageBox.Show("먼저 이미지를 불러오세요.");
+                return;
+            }
 
-			if (string.IsNullOrWhiteSpace(_expectedDate) || string.IsNullOrWhiteSpace(_expectedBarcode))
-			{
-				MessageBox.Show("먼저 기준 날짜와 기준 바코드를 제출하세요.");
-				return;
-			}
+            if (string.IsNullOrWhiteSpace(_expectedDate) || string.IsNullOrWhiteSpace(_expectedBarcode))
+            {
+                MessageBox.Show("먼저 기준 날짜와 기준 바코드를 제출하세요.");
+                return;
+            }
 
-			// TODO: 나중에 실제 결과로 교체
-			string readBarcode = "880106262476";
-			string readDate = "26-09-21";
-			bool isPrintOk = true;
+            try
+            {
+                Bitmap frame = new Bitmap(pictureBoxFrame.Image);
 
-			// 🔥 핵심: Manager 사용
-			InspectionResult result = _inspectionManager.Inspect(
-				_expectedBarcode,
-				readBarcode,
-				_expectedDate,
-				readDate,
-				isPrintOk
-			);
+                // ROI 영역
+                Rectangle barcodeRect = _packageTracker.GetBarcodeRect();
+                Rectangle dateRect = _packageTracker.GetDateRect();
 
-			// 검사 횟수 증가
-			_totalInspectionCount++;
+                // 👉 실제 Reader 호출
+                BarcodeResult barcodeResult = _barcodeReader.ReadBarcode(frame, barcodeRect);
+                DateResult dateResult = _dateReader.ReadDate(frame, dateRect);
 
-			if (result.IsOverallOk)
-			{
-				_okInspectionCount++;
+                string readBarcode = barcodeResult.Success ? barcodeResult.Value : "";
+                string readDate = dateResult.Success ? dateResult.Value : "";
 
-				lblResult.Text = "OK";
-				lblResult.ForeColor = Color.LimeGreen;
+                InspectionResult result;
 
-				AddLogItem("OK", "-", result.ActualDate, result.ActualBarcode, Color.Green);
-			}
-			else
-			{
-				lblResult.Text = "NOK";
-				lblResult.ForeColor = Color.Red;
+                // 🔥 decode 실패 먼저 처리
+                if (!barcodeResult.Success)
+                {
+                    result = InspectionResult.Fail(
+                        "barcode_decode_fail",
+                        "",
+                        _expectedBarcode,
+                        "",
+                        _expectedDate
+                    );
+                }
+                else if (!dateResult.Success)
+                {
+                    result = InspectionResult.Fail(
+                        "date_ocr_fail",
+                        readBarcode,
+                        _expectedBarcode,
+                        "",
+                        _expectedDate
+                    );
+                }
+                else
+                {
+                    // 👉 실제 비교
+                    result = _inspectionManager.Inspect(
+                        _expectedBarcode,
+                        readBarcode,
+                        _expectedDate,
+                        readDate
+                    );
+                }
 
-				AddLogItem("NOK", result.FailReasonText, result.ActualDate, result.ActualBarcode, Color.Red);
-			}
+                // 통계
+                _totalInspectionCount++;
 
-			UpdateInspectionRate();
-		}
+                if (result.IsOverallOk)
+                {
+                    _okInspectionCount++;
 
-		/// <summary>
-		/// 검사율과 총 검사 수 화면 갱신
-		/// </summary>
-		private void UpdateInspectionRate()
+                    lblResult.Text = "OK";
+                    lblResult.ForeColor = Color.LimeGreen;
+
+                    AddLogItem("OK", "-", result.ActualDate, result.ActualBarcode, Color.Green);
+                }
+                else
+                {
+                    lblResult.Text = "NOK";
+                    lblResult.ForeColor = Color.Red;
+
+                    AddLogItem("NOK", result.FailReasonText, result.ActualDate, result.ActualBarcode, Color.Red);
+                }
+
+                UpdateInspectionRate();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("검사 중 오류: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// 검사율과 총 검사 수 화면 갱신
+        /// </summary>
+        private void UpdateInspectionRate()
 		{
 			int rate = 0;
 
