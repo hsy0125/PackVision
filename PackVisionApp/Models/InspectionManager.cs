@@ -40,17 +40,17 @@ namespace PackVisionApp.Managers
 			// 실패 사유 추가
 			if (!result.IsBarcodeOk)
 			{
-				result.FailReasons.Add("B"); // Barcode mismatch
+				result.FailReasons.Add("바코드 오류"); // Barcode mismatch
 			}
 
 			if (!result.IsDateOk)
 			{
-				result.FailReasons.Add("D"); // Date mismatch
+				result.FailReasons.Add("날짜 오류"); // Date mismatch
 			}
 
 			if (!result.IsPrintOk)
 			{
-				result.FailReasons.Add("P"); // Print quality issue
+				result.FailReasons.Add("프린트 오류"); // Print quality issue
 			}
 
 			// 최종 결과 계산

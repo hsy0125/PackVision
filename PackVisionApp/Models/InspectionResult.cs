@@ -6,7 +6,7 @@ namespace PackVisionApp.Models
 	/*
 	 * InspectionResult
 	 * 
-	 * 역할:
+	 * 역할: 결과 데이터 클래스
 	 * - 한 번의 검사 결과를 저장하는 데이터 클래스
 	 * - 바코드, 날짜, 인쇄 상태의 개별 판정 결과를 보관
 	 * - 실패 원인(FailReason)을 리스트 형태로 관리

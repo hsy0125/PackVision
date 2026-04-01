@@ -7,13 +7,34 @@ using System.Text;
 using System.Windows.Forms;
 using PackVisionApp.Managers;
 using PackVisionApp.Models;
+using PackVisionApp.Service;
+using PackVisionApp.Services;
+using System.IO;
+using System.Linq;
 
 namespace PackVisionApp.UI
 {
 	public partial class MainForm : Form
 	{
+		// ROI 드래그 상태
+		private bool _isDrawingRoi = false;
+		private Point _roiStartPoint = Point.Empty;
+		private Rectangle _currentRoi = Rectangle.Empty;
+
+		// 저장된 ROI
+		private Rectangle _packageRect = Rectangle.Empty;
+		private Rectangle _dateRoi = Rectangle.Empty;
+		private Rectangle _barcodeRoi = Rectangle.Empty;
+
+		// 현재 ROI 모드
+		private string _roiMode = "";
+
+		// "PACKAGE", "DATE", "BARCODE"
 		// 필드 추가
 		private InspectionManager _inspectionManager = new InspectionManager();
+		private CsvLogManager _csvLogManager = new CsvLogManager();
+		private Bitmap _originalFrame = null;
+
 		// 사용자가 제출한 기준 날짜
 		private string _expectedDate = "";
 
@@ -32,6 +53,9 @@ namespace PackVisionApp.UI
 		{
 			InitializeComponent();
 
+			lblResult.Parent = pictureBoxFrame;
+			lblResult.BackColor = Color.Transparent;
+			lblResult.BringToFront();
 			// 처음 폼이 열릴 때 검사율 표시 초기화
 			UpdateInspectionRate();
 		}
@@ -63,6 +87,13 @@ namespace PackVisionApp.UI
 						pictureBoxFrame.Image?.Dispose();
 
 						Bitmap bmp = new Bitmap(ofd.FileName);
+
+						// 기존 원본 이미지 해제
+						_originalFrame?.Dispose();
+						_originalFrame = new Bitmap(bmp);
+
+						// 기존 화면 이미지 해제
+						pictureBoxFrame.Image?.Dispose();
 						pictureBoxFrame.Image = bmp;
 					}
 					catch (Exception ex)
@@ -152,18 +183,23 @@ namespace PackVisionApp.UI
 				return;
 			}
 
+			if (_originalFrame == null)
+			{
+				MessageBox.Show("원본 이미지가 없습니다.");
+				return;
+			}
+
 			if (string.IsNullOrWhiteSpace(_expectedDate) || string.IsNullOrWhiteSpace(_expectedBarcode))
 			{
 				MessageBox.Show("먼저 기준 날짜와 기준 바코드를 제출하세요.");
 				return;
 			}
 
-			// TODO: 나중에 실제 결과로 교체
-			string readBarcode = "880106262476";
+			// 현재는 임시 더미값
+			string readBarcode = "8801062628476";
 			string readDate = "26-09-21";
 			bool isPrintOk = true;
 
-			// 🔥 핵심: Manager 사용
 			InspectionResult result = _inspectionManager.Inspect(
 				_expectedBarcode,
 				readBarcode,
@@ -172,8 +208,12 @@ namespace PackVisionApp.UI
 				isPrintOk
 			);
 
-			// 검사 횟수 증가
 			_totalInspectionCount++;
+
+			using (Bitmap source = new Bitmap(_originalFrame))
+			{
+				ProcessBarcodeOverlay(source, readBarcode, _expectedBarcode);
+			}
 
 			if (result.IsOverallOk)
 			{
@@ -192,6 +232,7 @@ namespace PackVisionApp.UI
 				AddLogItem("NOK", result.FailReasonText, result.ActualDate, result.ActualBarcode, Color.Red);
 			}
 
+			_csvLogManager.SaveLog(result);
 			UpdateInspectionRate();
 		}
 
@@ -257,6 +298,227 @@ namespace PackVisionApp.UI
 			lvLogs.Columns.Add("Reason", 100);
 			lvLogs.Columns.Add("Date", 120);
 			lvLogs.Columns.Add("Barcode", 180);
+		}
+
+		private void btnTestCrop_Click(object sender, EventArgs e)
+		{
+			//string imagePath = @"C:\Users\user\Desktop\barcode.png";
+
+			//if (!File.Exists(imagePath))
+			//{
+			//	MessageBox.Show("이미지 파일이 없습니다.");
+			//	return;
+			//}
+
+			//Bitmap source = new Bitmap(imagePath);
+
+			//Rectangle searchRoi = new Rectangle(1000, 1200, 850, 300);
+			//Rectangle fittedRoi = BarcodeLabelDetector.FindWhiteLabelRect(source, searchRoi);
+
+			//if (fittedRoi == Rectangle.Empty)
+			//{
+			//	MessageBox.Show("흰색 라벨 ROI를 찾지 못했습니다.");
+			//	return;
+			//}
+
+			//Bitmap cropped = TextRegionCropper.Crop(source, fittedRoi);
+
+			//List<Rectangle> charBoxes = CharBlobDetector.FindCharBoxes(cropped);
+
+			//Bitmap debugCrop = new Bitmap(cropped);
+
+			//using (Graphics g = Graphics.FromImage(debugCrop))
+			//{
+			//	using (Pen pen = new Pen(Color.Lime, 2))
+			//	{
+			//		foreach (Rectangle box in charBoxes)
+			//		{
+			//			g.DrawRectangle(pen, box);
+			//		}
+			//	}
+			//}
+
+			//pictureBoxFrame.Image = debugCrop;
+
+		}
+
+
+		//private void ProcessBarcodeOverlay(Bitmap source, string readValue, string expectedValue)
+		//{
+		//	int x = (int)(source.Width * 0.20);
+		//	int y = (int)(source.Height * 0.55);   // 🔥 핵심 수정
+		//	int w = (int)(source.Width * 0.60);
+		//	int h = (int)(source.Height * 0.25);
+
+		//	Rectangle searchRoi = new Rectangle(x, y, w, h);
+		//	Rectangle fittedRoi = BarcodeLabelDetector.FindWhiteLabelRect(source, searchRoi);
+
+		//	if (fittedRoi == Rectangle.Empty)
+		//		return;
+
+		//	using (Bitmap labelCrop = TextRegionCropper.Crop(source, fittedRoi))
+		//	{
+		//		Rectangle numberRegion = BarcodeNumberRegionDetector.GetNumberRegion(labelCrop);
+
+		//		using (Bitmap numberCrop = TextRegionCropper.Crop(labelCrop, numberRegion))
+		//		{
+		//			List<Rectangle> charBoxes = CharBlobDetector.FindCharBoxes(numberCrop)
+		//				.OrderBy(r => r.X)
+		//				.ToList();
+
+		//			MessageBox.Show(
+		//				$"fittedRoi={fittedRoi}\n" +
+		//				$"numberRegion={numberRegion}\n" +
+		//				$"charBoxes.Count={charBoxes.Count}");
+
+		//			if (charBoxes.Count > readValue.Length)
+		//			{
+		//				charBoxes = charBoxes.Take(readValue.Length).ToList();
+		//			}
+
+		//			Bitmap debugImage = new Bitmap(source);
+
+		//			using (Graphics g = Graphics.FromImage(debugImage))
+		//			using (Font font = new Font("Arial", 20, FontStyle.Bold))
+		//			{
+		//				// 1) search ROI
+		//				using (Pen searchPen = new Pen(Color.Yellow, 3))
+		//				{
+		//					g.DrawRectangle(searchPen, searchRoi);
+		//				}
+
+		//				// 2) fitted ROI
+		//				using (Pen fitPen = new Pen(Color.Cyan, 3))
+		//				{
+		//					g.DrawRectangle(fitPen, fittedRoi);
+		//				}
+
+		//				// 3) number region on original
+		//				Rectangle numberRegionOnOriginal = new Rectangle(
+		//					fittedRoi.X + numberRegion.X,
+		//					fittedRoi.Y + numberRegion.Y,
+		//					numberRegion.Width,
+		//					numberRegion.Height);
+
+		//				using (Pen numberPen = new Pen(Color.Magenta, 3))
+		//				{
+		//					g.DrawRectangle(numberPen, numberRegionOnOriginal);
+		//				}
+
+		//				// 4) char boxes + text
+		//				for (int i = 0; i < charBoxes.Count; i++)
+		//				{
+		//					Rectangle box = charBoxes[i];
+
+		//					Rectangle originalBox = new Rectangle(
+		//						fittedRoi.X + numberRegion.X + box.X,
+		//						fittedRoi.Y + numberRegion.Y + box.Y,
+		//						box.Width,
+		//						box.Height);
+
+		//					string text = i < readValue.Length ? readValue[i].ToString() : "?";
+
+		//					bool isMatch = i < readValue.Length &&
+		//								   i < expectedValue.Length &&
+		//								   readValue[i] == expectedValue[i];
+
+		//					Color color = isMatch ? Color.Lime : Color.Red;
+
+		//					using (Pen pen = new Pen(color, 3))
+		//					using (Brush brush = new SolidBrush(color))
+		//					{
+		//						g.DrawRectangle(pen, originalBox);
+		//						g.DrawString(
+		//							text,
+		//							font,
+		//							brush,
+		//							originalBox.X,
+		//							Math.Max(0, originalBox.Y - 28));
+		//					}
+		//				}
+		//			}
+
+		//			Image oldImage = pictureBoxFrame.Image;
+		//			pictureBoxFrame.Image = debugImage;
+		//			oldImage?.Dispose();
+		//		}
+		//	}
+		//}
+
+
+
+		private void ProcessBarcodeOverlay(Bitmap source, string readValue, string expectedValue)
+		{
+			int x = (int)(source.Width * 0.20);
+			int y = (int)(source.Height * 0.55);
+			int w = (int)(source.Width * 0.60);
+			int h = (int)(source.Height * 0.25);
+
+			Rectangle searchRoi = new Rectangle(x, y, w, h);
+			Rectangle fittedRoi = BarcodeLabelDetector.FindWhiteLabelRect(source, searchRoi);
+
+			if (fittedRoi == Rectangle.Empty)
+			{
+				MessageBox.Show("흰색 라벨 ROI를 찾지 못했습니다.");
+				return;
+			}
+
+			using (Bitmap labelCrop = TextRegionCropper.Crop(source, fittedRoi))
+			{
+				Rectangle numberRegion = BarcodeNumberRegionDetector.GetNumberRegion(labelCrop);
+
+				using (Bitmap numberCrop = TextRegionCropper.Crop(labelCrop, numberRegion))
+				{
+					List<Rectangle> charBoxes = CharBlobDetector.FindCharBoxes(numberCrop)
+						.Where(r => r.Width >= 4 && r.Width <= 45)
+						.Where(r => r.Height >= 12 && r.Height <= 55)
+						.Where(r => r.Width >= r.Height * 0.22)
+						.OrderBy(r => r.X)
+						.ToList();
+
+					Bitmap debugImage = new Bitmap(source);
+
+					using (Graphics g = Graphics.FromImage(debugImage))
+					using (Font font = new Font("Arial", 16, FontStyle.Bold))
+					{
+						for (int i = 0; i < charBoxes.Count; i++)
+						{
+							Rectangle box = charBoxes[i];
+
+							Rectangle originalBox = new Rectangle(
+								fittedRoi.X + numberRegion.X + box.X,
+								fittedRoi.Y + numberRegion.Y + box.Y,
+								box.Width,
+								box.Height);
+
+							string readChar = i < readValue.Length ? readValue[i].ToString() : "?";
+							string expectedChar = i < expectedValue.Length ? expectedValue[i].ToString() : "?";
+
+							bool isMatch = i < readValue.Length &&
+										   i < expectedValue.Length &&
+										   readValue[i] == expectedValue[i];
+
+							Color color = isMatch ? Color.Lime : Color.Red;
+
+							using (Pen pen = new Pen(color, 2))
+							using (Brush brush = new SolidBrush(color))
+							{
+								g.DrawRectangle(pen, originalBox);
+								g.DrawString(
+									readChar,
+									font,
+									brush,
+									originalBox.X,
+									Math.Max(0, originalBox.Y - 22));
+							}
+						}
+					}
+
+					Image oldImage = pictureBoxFrame.Image;
+					pictureBoxFrame.Image = debugImage;
+					oldImage?.Dispose();
+				}
+			}
 		}
 	}
 }

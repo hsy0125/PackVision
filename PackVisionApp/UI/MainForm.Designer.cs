@@ -31,17 +31,19 @@
 			btnRun = new Button();
 			btnStop = new Button();
 			_imagePanel = new Panel();
+			lblResult = new Label();
 			pictureBoxFrame = new PictureBox();
 			txtDate = new TextBox();
 			btnDate = new Button();
 			panel1 = new Panel();
+			label1 = new Label();
+			label2 = new Label();
 			btnBarcode = new Button();
 			txtBarcode = new TextBox();
 			panelBottom = new Panel();
 			panelLog = new Panel();
 			lvLogs = new ListView();
 			panelStatus = new Panel();
-			lblResult = new Label();
 			lblInspectionSummary = new Label();
 			lblInspectionCount = new Label();
 			lblInspectionRate = new Label();
@@ -49,8 +51,7 @@
 			imageOpenToolStripMenuItem = new ToolStripMenuItem();
 			imageToolStripMenuItem = new ToolStripMenuItem();
 			imageSaveToolStripMenuItem = new ToolStripMenuItem();
-			label2 = new Label();
-			label1 = new Label();
+			btnTestCrop = new Button();
 			_imagePanel.SuspendLayout();
 			((System.ComponentModel.ISupportInitialize)pictureBoxFrame).BeginInit();
 			panel1.SuspendLayout();
@@ -82,11 +83,24 @@
 			// _imagePanel
 			// 
 			_imagePanel.AllowDrop = true;
+			_imagePanel.Controls.Add(btnTestCrop);
+			_imagePanel.Controls.Add(lblResult);
 			_imagePanel.Controls.Add(pictureBoxFrame);
 			_imagePanel.Location = new Point(12, 115);
 			_imagePanel.Name = "_imagePanel";
 			_imagePanel.Size = new Size(1304, 449);
 			_imagePanel.TabIndex = 2;
+			// 
+			// lblResult
+			// 
+			lblResult.AutoSize = true;
+			lblResult.BackColor = Color.Transparent;
+			lblResult.Font = new Font("맑은 고딕", 36F, FontStyle.Bold, GraphicsUnit.Point, 129);
+			lblResult.Location = new Point(3, 12);
+			lblResult.Name = "lblResult";
+			lblResult.Size = new Size(337, 96);
+			lblResult.TabIndex = 3;
+			lblResult.Text = "lblResult";
 			// 
 			// pictureBoxFrame
 			// 
@@ -130,6 +144,24 @@
 			panel1.Name = "panel1";
 			panel1.Size = new Size(1305, 82);
 			panel1.TabIndex = 5;
+			// 
+			// label1
+			// 
+			label1.AutoSize = true;
+			label1.Location = new Point(446, 7);
+			label1.Name = "label1";
+			label1.Size = new Size(79, 25);
+			label1.TabIndex = 8;
+			label1.Text = "Barcode";
+			// 
+			// label2
+			// 
+			label2.AutoSize = true;
+			label2.Location = new Point(11, 3);
+			label2.Name = "label2";
+			label2.Size = new Size(98, 25);
+			label2.TabIndex = 7;
+			label2.Text = "yy-mm-dd";
 			// 
 			// btnBarcode
 			// 
@@ -178,7 +210,6 @@
 			// 
 			// panelStatus
 			// 
-			panelStatus.Controls.Add(lblResult);
 			panelStatus.Controls.Add(lblInspectionSummary);
 			panelStatus.Controls.Add(lblInspectionCount);
 			panelStatus.Controls.Add(lblInspectionRate);
@@ -187,19 +218,10 @@
 			panelStatus.Size = new Size(233, 303);
 			panelStatus.TabIndex = 0;
 			// 
-			// lblResult
-			// 
-			lblResult.AutoSize = true;
-			lblResult.Location = new Point(24, 15);
-			lblResult.Name = "lblResult";
-			lblResult.Size = new Size(80, 25);
-			lblResult.TabIndex = 3;
-			lblResult.Text = "lblResult";
-			// 
 			// lblInspectionSummary
 			// 
 			lblInspectionSummary.AutoSize = true;
-			lblInspectionSummary.Location = new Point(28, 221);
+			lblInspectionSummary.Location = new Point(28, 206);
 			lblInspectionSummary.Name = "lblInspectionSummary";
 			lblInspectionSummary.Size = new Size(59, 25);
 			lblInspectionSummary.TabIndex = 2;
@@ -208,7 +230,7 @@
 			// lblInspectionCount
 			// 
 			lblInspectionCount.AutoSize = true;
-			lblInspectionCount.Location = new Point(24, 165);
+			lblInspectionCount.Location = new Point(28, 145);
 			lblInspectionCount.Name = "lblInspectionCount";
 			lblInspectionCount.Size = new Size(114, 25);
 			lblInspectionCount.TabIndex = 1;
@@ -217,9 +239,10 @@
 			// lblInspectionRate
 			// 
 			lblInspectionRate.AutoSize = true;
-			lblInspectionRate.Location = new Point(24, 75);
+			lblInspectionRate.Font = new Font("맑은 고딕", 14F, FontStyle.Bold, GraphicsUnit.Point, 129);
+			lblInspectionRate.Location = new Point(28, 31);
 			lblInspectionRate.Name = "lblInspectionRate";
-			lblInspectionRate.Size = new Size(27, 25);
+			lblInspectionRate.Size = new Size(42, 38);
 			lblInspectionRate.TabIndex = 0;
 			lblInspectionRate.Text = "%";
 			// 
@@ -255,23 +278,15 @@
 			imageSaveToolStripMenuItem.Text = "ImageSave";
 			imageSaveToolStripMenuItem.Click += imageSaveToolStripMenuItem_Click;
 			// 
-			// label2
+			// btnTestCrop
 			// 
-			label2.AutoSize = true;
-			label2.Location = new Point(11, 3);
-			label2.Name = "label2";
-			label2.Size = new Size(98, 25);
-			label2.TabIndex = 7;
-			label2.Text = "yy-mm-dd";
-			// 
-			// label1
-			// 
-			label1.AutoSize = true;
-			label1.Location = new Point(446, 7);
-			label1.Name = "label1";
-			label1.Size = new Size(79, 25);
-			label1.TabIndex = 8;
-			label1.Text = "Barcode";
+			btnTestCrop.Location = new Point(1151, 67);
+			btnTestCrop.Name = "btnTestCrop";
+			btnTestCrop.Size = new Size(140, 34);
+			btnTestCrop.TabIndex = 4;
+			btnTestCrop.Text = "크롭 테스트";
+			btnTestCrop.UseVisualStyleBackColor = true;
+			btnTestCrop.Click += btnTestCrop_Click;
 			// 
 			// MainForm
 			// 
@@ -287,6 +302,7 @@
 			Text = "MainForm";
 			Load += MainForm_Load;
 			_imagePanel.ResumeLayout(false);
+			_imagePanel.PerformLayout();
 			((System.ComponentModel.ISupportInitialize)pictureBoxFrame).EndInit();
 			panel1.ResumeLayout(false);
 			panel1.PerformLayout();
@@ -327,5 +343,6 @@
 		private ListView lvLogs;
 		private Label label1;
 		private Label label2;
+		private Button btnTestCrop;
 	}
 }

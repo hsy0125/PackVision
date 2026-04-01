@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("PackVisionApp")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+82dc39376eb7b432a95cb903e66648d30aa91731")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+346d8f24382ccd9da96c6fb7f577231456676728")]
 [assembly: System.Reflection.AssemblyProductAttribute("PackVisionApp")]
 [assembly: System.Reflection.AssemblyTitleAttribute("PackVisionApp")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
