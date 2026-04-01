@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Text;
+
 
 namespace PackVisionApp.Models
 {
@@ -88,10 +90,10 @@ namespace PackVisionApp.Models
             return result;
         }
 
-        // 최종 판정 계산
-        public void UpdateOverallResult()
-        {
-            IsOverallOk = IsBarcodeOk && IsDateOk && IsPrintOk;
-        }
-    }
+		// 최종 판정 계산
+		public void UpdateOverallResult()
+		{
+			IsOverallOk = IsBarcodeOk && IsDateOk && IsPrintOk;
+		}
+	}
 }

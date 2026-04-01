@@ -16,15 +16,16 @@ namespace PackVisionApp.Managers
 	 * - UI(MainForm)와 검사 로직을 분리하여 코드 구조를 명확하게 유지
 	 * - 검사 기준 변경 시 Manager만 수정하면 되도록 설계
 	 */
-    public class InspectionManager
-    {
-        public InspectionResult Inspect(
-            string expectedBarcode,
-            string actualBarcode,
-            string expectedDate,
-            string actualDate)
-        {
-            InspectionResult result = new InspectionResult();
+	public class InspectionManager
+	{
+		public InspectionResult Inspect(
+			string expectedBarcode,
+			string actualBarcode,
+			string expectedDate,
+			string actualDate,
+			bool isPrintOk)
+		{
+			InspectionResult result = new InspectionResult();
 
             // 값 저장
             result.ExpectedBarcode = expectedBarcode ?? "";
