@@ -9,14 +9,13 @@ namespace PackVisionApp.Vision
 {
     public class PackageTracker
     {
-        // 포장지 전체 추적용 트래커 (초록 박스)
         private TrackerCSRT _packageTracker;
         private Rectangle _packageRect;
+        private int _initWidth;  // 처음 드래그한 가로 크기 기억
+        private int _initHeight; // 처음 드래그한 세로 크기 기억
 
-        // 날짜/바코드 비율 저장
-        // RectangleF = 소수점 있는 사각형 (비율 저장용, 팀 규칙!)
-        private RectangleF _dateRatio;    // 날짜 비율
-        private RectangleF _barcodeRatio; // 바코드 비율
+        private RectangleF _dateRatio;
+        private RectangleF _barcodeRatio;
 
         private readonly object _lock = new object();
 
@@ -24,13 +23,11 @@ namespace PackVisionApp.Vision
         public bool IsDateRoiSet { get; private set; } = false;
         public bool IsBarcodeRoiSet { get; private set; } = false;
 
-        // 포장지 위치 반환
         public Rectangle GetPackageRect()
         {
             lock (_lock) { return _packageRect; }
         }
 
-        // 날짜 실제 좌표 반환 (비율 → 실제 좌표 변환)
         public Rectangle GetDateRect()
         {
             lock (_lock)
@@ -40,7 +37,6 @@ namespace PackVisionApp.Vision
             }
         }
 
-        // 바코드 실제 좌표 반환 (비율 → 실제 좌표 변환)
         public Rectangle GetBarcodeRect()
         {
             lock (_lock)
@@ -50,8 +46,6 @@ namespace PackVisionApp.Vision
             }
         }
 
-        // 비율 → 실제 좌표 변환 함수
-        // 포장지 박스 안에서 비율로 저장된 좌표를 실제 픽셀 좌표로 변환
         private Rectangle RatioToRect(RectangleF ratio, Rectangle packageRect)
         {
             int x = packageRect.X + (int)(packageRect.Width * ratio.X);
@@ -61,8 +55,6 @@ namespace PackVisionApp.Vision
             return new Rectangle(x, y, w, h);
         }
 
-        // 실제 좌표 → 비율 변환 함수
-        // 드래그한 좌표를 포장지 기준 비율로 저장
         private RectangleF RectToRatio(Rectangle rect, Rectangle packageRect)
         {
             float x = (float)(rect.X - packageRect.X) / packageRect.Width;
@@ -72,7 +64,6 @@ namespace PackVisionApp.Vision
             return new RectangleF(x, y, w, h);
         }
 
-        // Bitmap → BGR Mat 안전 변환
         private Mat ToColorMat(Bitmap bmp)
         {
             Bitmap converted;
@@ -92,7 +83,6 @@ namespace PackVisionApp.Vision
             return mat;
         }
 
-        // 포장지 전체 영역 지정 (초록 박스)
         public void SetTarget(Bitmap currentFrame, Rectangle rect)
         {
             if (rect.Width <= 0 || rect.Height <= 0) return;
@@ -111,12 +101,16 @@ namespace PackVisionApp.Vision
                 }
 
                 _packageRect = rect;
+
+                // [핵심] 처음 크기 기억해두기
+                _initWidth = rect.Width;
+                _initHeight = rect.Height;
+
                 IsTracking = true;
                 Console.WriteLine($"포장지 추적 시작: X={rect.X}, Y={rect.Y}");
             }
         }
 
-        // 날짜 ROI 지정 — 포장지 기준 비율로 저장
         public void SetDateRoi(Rectangle dateRect)
         {
             if (!IsTracking) return;
@@ -128,7 +122,6 @@ namespace PackVisionApp.Vision
             }
         }
 
-        // 바코드 ROI 지정 — 포장지 기준 비율로 저장
         public void SetBarcodeRoi(Rectangle barcodeRect)
         {
             if (!IsTracking) return;
@@ -140,7 +133,6 @@ namespace PackVisionApp.Vision
             }
         }
 
-        // 매 프레임마다 포장지 추적
         public void Track(Bitmap currentFrame)
         {
             if (!IsTracking || _packageTracker == null) return;
@@ -161,19 +153,29 @@ namespace PackVisionApp.Vision
 
                 if (found)
                 {
-                    lock (_lock)
+                    // [핵심] 크기가 처음 크기의 50%~150% 범위 벗어나면 무시
+                    bool sizeOk =
+                        newRect.Width > _initWidth * 0.5 &&
+                        newRect.Width < _initWidth * 1.5 &&
+                        newRect.Height > _initHeight * 0.5 &&
+                        newRect.Height < _initHeight * 1.5;
+
+                    if (sizeOk)
                     {
-                        // [수정] 크기는 트래커 결과 그대로 사용
-                        // 위치만 보정 로직 적용 (튀는 현상 방지)
-                        int smoothX = (int)(_packageRect.X * 0.7 + newRect.X * 0.3);
-                        int smoothY = (int)(_packageRect.Y * 0.7 + newRect.Y * 0.3);
+                        lock (_lock)
+                        {
+                            // 위치 보정 (0.5:0.5 — 빠르면서 안정적)
+                            int smoothX = (int)(_packageRect.X * 0.5 + newRect.X * 0.5);
+                            int smoothY = (int)(_packageRect.Y * 0.5 + newRect.Y * 0.5);
 
-                        // 크기는 보정 없이 그대로 사용
-                        int w = newRect.Width;
-                        int h = newRect.Height;
-
-                        _packageRect = new Rectangle(smoothX, smoothY, w, h);
+                            // 크기는 처음 드래그한 크기로 고정
+                            _packageRect = new Rectangle(
+                                smoothX, smoothY,
+                                _initWidth,
+                                _initHeight);
+                        }
                     }
+                    // sizeOk 아니면 마지막 위치 유지
                 }
                 else
                 {
@@ -182,7 +184,6 @@ namespace PackVisionApp.Vision
             }
         }
 
-        // 초기화
         public void Reset()
         {
             lock (_lock)
@@ -191,6 +192,8 @@ namespace PackVisionApp.Vision
                 _packageTracker?.Dispose();
                 _packageTracker = null;
                 _packageRect = Rectangle.Empty;
+                _initWidth = 0;
+                _initHeight = 0;
 
                 IsDateRoiSet = false;
                 _dateRatio = RectangleF.Empty;

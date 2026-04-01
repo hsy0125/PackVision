@@ -22,7 +22,22 @@
 
   <ItemGroup>
     <Reference Include="MvCameraControl.Net">
-      <HintPath>..\..\..\Documents\JidamVision6\ExternalLib\Dll\MessagingLibrary\MvCameraControl.Net.dll</HintPath>
+      <HintPath>..\..\..\dll\MvCameraControl.Net.dll</HintPath>
+    </Reference>
+    <Reference Include="OpenCvSharp">
+      <HintPath>bin\x64\Debug\net10.0-windows7.0\OpenCvSharp.dll</HintPath>
+    </Reference>
+    <Reference Include="OpenCvSharp.Extensions">
+      <HintPath>bin\x64\Debug\net10.0-windows7.0\OpenCvSharp.Extensions.dll</HintPath>
+    </Reference>
+    <Reference Include="OpenCvSharp.WpfExtensions">
+      <HintPath>bin\x64\Debug\net10.0-windows7.0\OpenCvSharp.WpfExtensions.dll</HintPath>
+    </Reference>
+    <Reference Include="PackVisionApp">
+      <HintPath>bin\x64\Debug\net10.0-windows7.0\PackVisionApp.dll</HintPath>
+    </Reference>
+    <Reference Include="zxing">
+      <HintPath>bin\x64\Debug\net10.0-windows7.0\zxing.dll</HintPath>
     </Reference>
   </ItemGroup>
 

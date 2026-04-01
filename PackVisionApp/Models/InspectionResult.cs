@@ -95,5 +95,16 @@ namespace PackVisionApp.Models
 		{
 			IsOverallOk = IsBarcodeOk && IsDateOk && IsPrintOk;
 		}
-	}
+
+
+
+        public void AddFailReason(string code)
+        {
+            if (string.IsNullOrWhiteSpace(code))
+                return;
+
+            if (!FailReasons.Contains(code))
+                FailReasons.Add(code);
+        }
+    }
 }

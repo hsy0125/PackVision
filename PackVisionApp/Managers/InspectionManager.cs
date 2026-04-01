@@ -1,70 +1,146 @@
-﻿using System;
-using System.Drawing;
-using System.Diagnostics;
+﻿using System.Drawing;
+using System.Linq;
 using PackVisionApp.Models;
+using PackVisionApp.Vision;
 
 namespace PackVisionApp.Managers
 {
-    /*
-     * InspectionManager — 통합 버전
-     * 
-     * 민영씨: RunInspection(frame, dateRect, barcodeRect) 호출
-     * 소영씨: Inspect(expectedBarcode, actualBarcode, ...) 호출
-     * 두 기능 모두 여기서 처리
-     */
     public class InspectionManager
     {
-        // ─────────────────────────────────────
-        // 민영씨가 사용하는 함수
-        // 매 프레임마다 frame + ROI 좌표 받기
-        // ─────────────────────────────────────
-        public void RunInspection(Bitmap frame, Rectangle dateRect, Rectangle barcodeRect)
+        private readonly BarcodeReader _barcodeReader;
+        private readonly DateReader _dateReader;
+        private readonly RoiMapper _roiMapper;
+
+        public RectangleF DateRatioRect { get; private set; } = RectangleF.Empty;
+        public RectangleF BarcodeRatioRect { get; private set; } = RectangleF.Empty;
+
+        public InspectionManager()
         {
-            if (frame == null) return;
-
-            Debug.WriteLine($"[InspectionManager] 날짜ROI: X={dateRect.X}, Y={dateRect.Y} | 바코드ROI: X={barcodeRect.X}, Y={barcodeRect.Y}");
-
-            // 선준씨가 여기에 바코드/날짜 인식 추가 예정
+            _barcodeReader = new BarcodeReader();
+            _dateReader = new DateReader();
+            _roiMapper = new RoiMapper();
         }
 
-        // ─────────────────────────────────────
-        // 소영씨가 사용하는 함수
-        // 기준값과 실제값 비교해서 OK/NOK 판정
-        // ─────────────────────────────────────
+        // 처음 티칭한 package/date/barcode 기준으로
+        // 상대 비율을 저장
+        public void SetRoiRatios(Rectangle packageRect, Rectangle dateRect, Rectangle barcodeRect)
+        {
+            if (packageRect == Rectangle.Empty ||
+                dateRect == Rectangle.Empty ||
+                barcodeRect == Rectangle.Empty)
+                return;
+
+            DateRatioRect = _roiMapper.RectToRatio(dateRect, packageRect);
+            BarcodeRatioRect = _roiMapper.RectToRatio(barcodeRect, packageRect);
+        }
+
+        public Rectangle GetDateRect(Rectangle packageRect)
+        {
+            if (packageRect == Rectangle.Empty || DateRatioRect == RectangleF.Empty)
+                return Rectangle.Empty;
+
+            return _roiMapper.RatioToRect(DateRatioRect, packageRect);
+        }
+
+        public Rectangle GetBarcodeRect(Rectangle packageRect)
+        {
+            if (packageRect == Rectangle.Empty || BarcodeRatioRect == RectangleF.Empty)
+                return Rectangle.Empty;
+
+            return _roiMapper.RatioToRect(BarcodeRatioRect, packageRect);
+        }
+
         public InspectionResult Inspect(
+            Bitmap frame,
+            Rectangle packageRect,
+            string expectedBarcode,
+            string expectedDate)
+        {
+            if (frame == null || packageRect == Rectangle.Empty)
+            {
+                return BuildResult(
+                    expectedBarcode,
+                    "",
+                    expectedDate,
+                    "",
+                    false,
+                    false);
+            }
+
+            Rectangle dateRect = GetDateRect(packageRect);
+            Rectangle barcodeRect = GetBarcodeRect(packageRect);
+
+            BarcodeResult barcodeResult = _barcodeReader.ReadBarcode(frame, barcodeRect);
+            DateResult dateResult = _dateReader.ReadDate(frame, dateRect);
+
+            string actualBarcode = barcodeResult.Success ? barcodeResult.Value : string.Empty;
+            string actualDate = dateResult.Success ? dateResult.Value : string.Empty;
+
+            bool isBarcodeOk = barcodeResult.Success &&
+                               NormalizeBarcode(expectedBarcode) == NormalizeBarcode(actualBarcode);
+
+            bool isDateOk = dateResult.Success &&
+                            NormalizeDate(expectedDate) == NormalizeDate(actualDate);
+
+            return BuildResult(
+                expectedBarcode,
+                actualBarcode,
+                expectedDate,
+                actualDate,
+                isBarcodeOk,
+                isDateOk);
+        }
+
+        private InspectionResult BuildResult(
             string expectedBarcode,
             string actualBarcode,
             string expectedDate,
             string actualDate,
-            bool isPrintOk)
+            bool isBarcodeOk,
+            bool isDateOk)
         {
-            InspectionResult result = new InspectionResult();
+            InspectionResult result = new InspectionResult
+            {
+                ExpectedBarcode = expectedBarcode ?? string.Empty,
+                ActualBarcode = actualBarcode ?? string.Empty,
+                ExpectedDate = NormalizeDate(expectedDate),
+                ActualDate = NormalizeDate(actualDate),
+                IsBarcodeOk = isBarcodeOk,
+                IsDateOk = isDateOk
+            };
 
-            // 기준값 / 실제값 저장
-            result.ExpectedBarcode = expectedBarcode ?? string.Empty;
-            result.ActualBarcode = actualBarcode ?? string.Empty;
-            result.ExpectedDate = expectedDate ?? string.Empty;
-            result.ActualDate = actualDate ?? string.Empty;
+            if (!isBarcodeOk)
+                result.AddFailReason("B");
 
-            // 개별 판정
-            result.IsBarcodeOk = result.ExpectedBarcode == result.ActualBarcode;
-            result.IsDateOk = result.ExpectedDate == result.ActualDate;
-            result.IsPrintOk = isPrintOk;
+            if (!isDateOk)
+                result.AddFailReason("D");
 
-            // 실패 사유 추가
-            if (!result.IsBarcodeOk)
-                result.FailReasons.Add("barcode_mismatch");
-
-            if (!result.IsDateOk)
-                result.FailReasons.Add("date_mismatch");
-
-            if (!result.IsPrintOk)
-                result.FailReasons.Add("print_fail");
-
-            // 최종 결과 계산
             result.UpdateOverallResult();
-
             return result;
+        }
+
+        private string NormalizeBarcode(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return string.Empty;
+
+            return new string(raw.Where(char.IsLetterOrDigit).ToArray());
+        }
+
+        private string NormalizeDate(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return string.Empty;
+
+            string digits = new string(raw.Where(char.IsDigit).ToArray());
+
+            if (digits.Length == 8)
+                return $"{digits.Substring(0, 4)}-{digits.Substring(4, 2)}-{digits.Substring(6, 2)}";
+
+            if (digits.Length == 6)
+                return $"20{digits.Substring(0, 2)}-{digits.Substring(2, 2)}-{digits.Substring(4, 2)}";
+
+            return raw.Trim();
         }
     }
 }

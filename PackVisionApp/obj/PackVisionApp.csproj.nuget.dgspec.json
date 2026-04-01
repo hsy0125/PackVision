@@ -1,24 +1,24 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\user\\Desktop\\새 폴더 (2)\\PackVisionApp\\PackVisionApp.csproj": {}
+    "C:\\Users\\user\\Desktop\\new1\\PackVision\\PackVisionApp\\PackVisionApp.csproj": {}
   },
   "projects": {
-    "C:\\Users\\user\\Desktop\\새 폴더 (2)\\PackVisionApp\\PackVisionApp.csproj": {
+    "C:\\Users\\user\\Desktop\\new1\\PackVision\\PackVisionApp\\PackVisionApp.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\user\\Desktop\\새 폴더 (2)\\PackVisionApp\\PackVisionApp.csproj",
+        "projectUniqueName": "C:\\Users\\user\\Desktop\\new1\\PackVision\\PackVisionApp\\PackVisionApp.csproj",
         "projectName": "PackVisionApp",
-        "projectPath": "C:\\Users\\user\\Desktop\\새 폴더 (2)\\PackVisionApp\\PackVisionApp.csproj",
+        "projectPath": "C:\\Users\\user\\Desktop\\new1\\PackVision\\PackVisionApp\\PackVisionApp.csproj",
         "packagesPath": "C:\\Users\\user\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\user\\Desktop\\새 폴더 (2)\\PackVisionApp\\obj\\",
+        "outputPath": "C:\\Users\\user\\Desktop\\new1\\PackVision\\PackVisionApp\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\user\\AppData\\Roaming\\NuGet\\NuGet.Config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
         "originalTargetFrameworks": [
-          "net10.0-windows"
+          "net10.0-windows7.0"
         ],
         "sources": {
           "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
@@ -26,7 +26,7 @@
         },
         "frameworks": {
           "net10.0-windows7.0": {
-            "targetAlias": "net10.0-windows",
+            "targetAlias": "net10.0-windows7.0",
             "projectReferences": {}
           }
         },
@@ -44,7 +44,7 @@
       },
       "frameworks": {
         "net10.0-windows7.0": {
-          "targetAlias": "net10.0-windows",
+          "targetAlias": "net10.0-windows7.0",
           "dependencies": {
             "OpenCvSharp4": {
               "target": "Package",
@@ -62,9 +62,21 @@
               "target": "Package",
               "version": "[4.13.0.20260302, )"
             },
+            "Tesseract": {
+              "target": "Package",
+              "version": "[5.2.0, )"
+            },
+            "Tesseract.Drawing": {
+              "target": "Package",
+              "version": "[5.2.0, )"
+            },
             "ZXing.Net": {
               "target": "Package",
               "version": "[0.16.11, )"
+            },
+            "ZXing.Net.Bindings.Windows.Compatibility": {
+              "target": "Package",
+              "version": "[0.16.14, )"
             }
           },
           "imports": [

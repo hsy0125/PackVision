@@ -43,6 +43,7 @@
             imageToolStripMenuItem = new ToolStripMenuItem();
             imageSaveToolStripMenuItem = new ToolStripMenuItem();
             lblDebug = new Label();
+            btnInspect = new Button();
             _imagePanel.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)pictureBoxFrame).BeginInit();
             panel1.SuspendLayout();
@@ -54,9 +55,9 @@
             // 
             // btnRun
             // 
-            btnRun.Location = new Point(888, 13);
+            btnRun.Location = new Point(1005, 13);
             btnRun.Name = "btnRun";
-            btnRun.Size = new Size(139, 56);
+            btnRun.Size = new Size(74, 56);
             btnRun.TabIndex = 0;
             btnRun.Text = "RUN";
             btnRun.UseVisualStyleBackColor = true;
@@ -64,9 +65,9 @@
             // 
             // btnStop
             // 
-            btnStop.Location = new Point(1033, 13);
+            btnStop.Location = new Point(1085, 13);
             btnStop.Name = "btnStop";
-            btnStop.Size = new Size(126, 56);
+            btnStop.Size = new Size(74, 56);
             btnStop.TabIndex = 1;
             btnStop.Text = "STOP";
             btnStop.UseVisualStyleBackColor = true;
@@ -115,6 +116,7 @@
             // 
             // panel1
             // 
+            panel1.Controls.Add(btnInspect);
             panel1.Controls.Add(label1);
             panel1.Controls.Add(label2);
             panel1.Controls.Add(btnBarcode);
@@ -299,6 +301,16 @@
             lblDebug.TabIndex = 11;
             lblDebug.Text = "lblDebug";
             // 
+            // btnInspect
+            // 
+            btnInspect.Location = new Point(925, 15);
+            btnInspect.Name = "btnInspect";
+            btnInspect.Size = new Size(74, 53);
+            btnInspect.TabIndex = 11;
+            btnInspect.Text = "검사";
+            btnInspect.UseVisualStyleBackColor = true;
+            btnInspect.Click += btnInspect_Click;
+            // 
             // MainForm
             // 
             AutoScaleDimensions = new SizeF(10F, 25F);
@@ -313,6 +325,7 @@
             Name = "MainForm";
             Text = "MainForm";
             Load += MainForm_Load;
+            MouseMove += pbCamera_MouseMove;
             _imagePanel.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)pictureBoxFrame).EndInit();
             panel1.ResumeLayout(false);
@@ -326,7 +339,6 @@
             ResumeLayout(false);
             PerformLayout();
         }
-
         #endregion
 
         // 소영씨 컨트롤
@@ -360,5 +372,6 @@
         private Button btnDateRoi;
         private Button btnBarcodeRoi;
         private Label lblDebug;
+        private Button btnInspect;
     }
 }
