@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Text.RegularExpressions;
 using PackVisionApp.Models;
 using Tesseract;
+using System.Diagnostics;
 
 namespace PackVisionApp.Vision
 {
@@ -32,27 +33,67 @@ namespace PackVisionApp.Vision
 
                 foreach (var rotation in rotations)
                 {
-                    Bitmap testImg = (Bitmap)cropped.Clone();
-                    testImg.RotateFlip(rotation);
-
-                    Bitmap binaryImg = ToBinary(testImg);
-                    SaveDebug(binaryImg, $"date_try_{rotation}");
-
-                    using (var engine = new TesseractEngine(@"./tessdata", "eng", EngineMode.Default))
+                    using (Bitmap testImg = (Bitmap)cropped.Clone())
                     {
-                        engine.SetVariable("tessedit_char_whitelist", "0123456789.-/");
-                        engine.DefaultPageSegMode = PageSegMode.SingleLine;
+                        testImg.RotateFlip(rotation);
+                        SaveDebug(testImg, $"date_rot_{rotation}");
 
-                        using (var img = PixConverter.ToPix(binaryImg))
-                        using (var page = engine.Process(img))
+                        // 1차: grayscale + 대비강화 + 4배 확대
+                        using (Bitmap grayImg = ToGrayscale(testImg))
+                        using (Bitmap enhancedImg = EnhanceContrast(grayImg))
+                        using (Bitmap resizedGrayImg = ResizeBitmap(enhancedImg, 4.0))
                         {
-                            string raw = page.GetText();
-                            string corrected = CorrectCommonMistakes(raw);
-                            string filtered = FilterDate(corrected);
-                            string normalized = NormalizeDate(filtered);
+                            SaveDebug(grayImg, $"date_gray_{rotation}");
+                            SaveDebug(enhancedImg, $"date_enhanced_{rotation}");
+                            SaveDebug(resizedGrayImg, $"date_gray_resized_{rotation}");
 
-                            if (!string.IsNullOrEmpty(normalized))
-                                return DateResult.Ok(normalized);
+                            using (var engine = new TesseractEngine(@"./tessdata", "eng", EngineMode.Default))
+                            {
+                                engine.SetVariable("tessedit_char_whitelist", "0123456789.-/");
+                                engine.DefaultPageSegMode = PageSegMode.SingleLine;
+
+                                using (var img = PixConverter.ToPix(resizedGrayImg))
+                                using (var page = engine.Process(img))
+                                {
+                                    string raw = page.GetText();
+                                    string corrected = CorrectCommonMistakes(raw);
+                                    string filtered = FilterDate(corrected);
+                                    string normalized = NormalizeDate(filtered);
+
+                                    Debug.WriteLine($"[DateOCR-Gray] rotation={rotation} | raw='{raw}' | corrected='{corrected}' | filtered='{filtered}' | normalized='{normalized}'");
+
+                                    if (!string.IsNullOrEmpty(normalized))
+                                        return DateResult.Ok(normalized);
+                                }
+                            }
+                        }
+
+                        // 2차: binary + 4배 확대
+                        using (Bitmap binaryImg = ToBinary(testImg))
+                        using (Bitmap resizedBinaryImg = ResizeBitmap(binaryImg, 4.0))
+                        {
+                            SaveDebug(binaryImg, $"date_binary_{rotation}");
+                            SaveDebug(resizedBinaryImg, $"date_binary_resized_{rotation}");
+
+                            using (var engine = new TesseractEngine(@"./tessdata", "eng", EngineMode.Default))
+                            {
+                                engine.SetVariable("tessedit_char_whitelist", "0123456789.-/");
+                                engine.DefaultPageSegMode = PageSegMode.SingleLine;
+
+                                using (var img = PixConverter.ToPix(resizedBinaryImg))
+                                using (var page = engine.Process(img))
+                                {
+                                    string raw = page.GetText();
+                                    string corrected = CorrectCommonMistakes(raw);
+                                    string filtered = FilterDate(corrected);
+                                    string normalized = NormalizeDate(filtered);
+
+                                    Debug.WriteLine($"[DateOCR-Bin] rotation={rotation} | raw='{raw}' | corrected='{corrected}' | filtered='{filtered}' | normalized='{normalized}'");
+
+                                    if (!string.IsNullOrEmpty(normalized))
+                                        return DateResult.Ok(normalized);
+                                }
+                            }
                         }
                     }
                 }
@@ -88,11 +129,58 @@ namespace PackVisionApp.Vision
                 {
                     Color c = original.GetPixel(x, y);
                     int gray = (c.R + c.G + c.B) / 3;
-                    binary.SetPixel(x, y, gray > 100 ? Color.White : Color.Black);
+                    binary.SetPixel(x, y, gray > 90 ? Color.White : Color.Black);
                 }
             }
 
             return binary;
+        }
+
+        private Bitmap ToGrayscale(Bitmap original)
+        {
+            Bitmap gray = new Bitmap(original.Width, original.Height);
+
+            for (int y = 0; y < original.Height; y++)
+            {
+                for (int x = 0; x < original.Width; x++)
+                {
+                    Color c = original.GetPixel(x, y);
+                    int g = (int)(c.R * 0.299 + c.G * 0.587 + c.B * 0.114);
+                    gray.SetPixel(x, y, Color.FromArgb(g, g, g));
+                }
+            }
+
+            return gray;
+        }
+
+        private Bitmap EnhanceContrast(Bitmap original)
+        {
+            Bitmap result = new Bitmap(original.Width, original.Height);
+
+            for (int y = 0; y < original.Height; y++)
+            {
+                for (int x = 0; x < original.Width; x++)
+                {
+                    Color c = original.GetPixel(x, y);
+                    int v = c.R;
+
+                    v = (v - 128) * 2 + 128;
+
+                    if (v < 0) v = 0;
+                    if (v > 255) v = 255;
+
+                    result.SetPixel(x, y, Color.FromArgb(v, v, v));
+                }
+            }
+
+            return result;
+        }
+
+        private Bitmap ResizeBitmap(Bitmap original, double scale)
+        {
+            int w = Math.Max(1, (int)(original.Width * scale));
+            int h = Math.Max(1, (int)(original.Height * scale));
+            return new Bitmap(original, new Size(w, h));
         }
 
         private string CorrectCommonMistakes(string raw)
@@ -101,13 +189,15 @@ namespace PackVisionApp.Vision
                 return "";
 
             return raw
-              .Replace('O', '0')
-              .Replace('o', '0')
-              .Replace('I', '1')
-              .Replace('l', '1')
-              .Replace('Z', '2')
-              .Replace('S', '5')
-              .Replace('B', '8');
+            .Replace('O', '0')
+            .Replace('o', '0')
+            .Replace('I', '1')
+            .Replace('l', '1')
+            .Replace('Z', '2')
+            .Replace('S', '5')
+            .Replace('B', '8')
+            .Replace('g', '9')
+            .Replace('q', '9');
         }
 
         private string FilterDate(string raw)

@@ -33,7 +33,7 @@ namespace PackVisionApp.UI
         private Rectangle _packageScreenRect;
         private Rectangle _dateScreenRect;
         private Rectangle _barcodeScreenRect;
-        
+
         //선준추가
         private bool _isAutoInspecting = false;
         private int _isInspectionBusy = 0;
@@ -61,6 +61,9 @@ namespace PackVisionApp.UI
         //선준 수정
         private void OnFrameUpdated(Bitmap bmp)
         {
+            if (bmp == null)
+                return;
+
             if (this.InvokeRequired)
             {
                 Bitmap copy = (Bitmap)bmp.Clone();
@@ -112,7 +115,7 @@ namespace PackVisionApp.UI
 
         private void btnDateRoi_Click(object sender, EventArgs e)
         {
-            if (!_packageTracker.IsTracking)
+            if (_packageImageRect == Rectangle.Empty)
             {
                 MessageBox.Show("먼저 포장지 전체를 드래그해서 잡아주세요!", "안내");
                 return;
@@ -123,7 +126,7 @@ namespace PackVisionApp.UI
 
         private void btnBarcodeRoi_Click(object sender, EventArgs e)
         {
-            if (!_packageTracker.IsTracking)
+            if (_packageImageRect == Rectangle.Empty)
             {
                 MessageBox.Show("먼저 포장지 전체를 드래그해서 잡아주세요!", "안내");
                 return;
@@ -188,24 +191,20 @@ namespace PackVisionApp.UI
                                 _packageTracker.SetTarget(currentImg, imageRect);
                                 currentImg.Dispose();
                             }
-                            if (_roiMode == "date")
-                            {
-                                _dateImageRect = imageRect;
-                                _roiMode = "none";
-                            }
-                            else if (_roiMode == "barcode")
-                            {
-                                _barcodeImageRect = imageRect;
-                                _roiMode = "none";
-                            }
-                            else
-                            {
-                                _packageImageRect = imageRect;
 
-                                Bitmap currentImg = (Bitmap)pictureBoxFrame.Image.Clone();
-                                _packageTracker.SetTarget(currentImg, imageRect);
-                                currentImg.Dispose();
+                            if (_packageImageRect != Rectangle.Empty &&
+                                _dateImageRect != Rectangle.Empty &&
+                                _barcodeImageRect != Rectangle.Empty)
+                            {
+                                _inspectionMgr.SetRoiRatios(
+                                    _packageImageRect,
+                                    _dateImageRect,
+                                    _barcodeImageRect);
                             }
+
+                            _packageScreenRect = ImageRectToScreenRect(_packageImageRect);
+                            _dateScreenRect = ImageRectToScreenRect(_dateImageRect);
+                            _barcodeScreenRect = ImageRectToScreenRect(_barcodeImageRect);
                         }
                     }
                 }
@@ -223,19 +222,19 @@ namespace PackVisionApp.UI
                     e.Graphics.DrawRectangle(pen, _selectionRect);
             }
 
-            if (_packageTracker.IsTracking && _packageScreenRect != Rectangle.Empty)
+            if (_packageScreenRect != Rectangle.Empty)
             {
                 using (Pen greenPen = new Pen(Color.Lime, 3))
                     e.Graphics.DrawRectangle(greenPen, _packageScreenRect);
             }
 
-            if (_packageTracker.IsDateRoiSet && _dateScreenRect != Rectangle.Empty)
+            if (_dateScreenRect != Rectangle.Empty)
             {
                 using (Pen bluePen = new Pen(Color.Blue, 3))
                     e.Graphics.DrawRectangle(bluePen, _dateScreenRect);
             }
 
-            if (_packageTracker.IsBarcodeRoiSet && _barcodeScreenRect != Rectangle.Empty)
+            if (_barcodeScreenRect != Rectangle.Empty)
             {
                 using (Pen yellowPen = new Pen(Color.Yellow, 3))
                     e.Graphics.DrawRectangle(yellowPen, _barcodeScreenRect);
@@ -433,8 +432,12 @@ namespace PackVisionApp.UI
                 return;
 
             _packageImageRect = _packageTracker.GetPackageRect();
-            _dateImageRect = _inspectionMgr.GetDateRect(_packageImageRect);
-            _barcodeImageRect = _inspectionMgr.GetBarcodeRect(_packageImageRect);
+
+            if (_inspectionMgr.DateRatioRect != RectangleF.Empty)
+                _dateImageRect = _inspectionMgr.GetDateRect(_packageImageRect);
+
+            if (_inspectionMgr.BarcodeRatioRect != RectangleF.Empty)
+                _barcodeImageRect = _inspectionMgr.GetBarcodeRect(_packageImageRect);
 
             _packageScreenRect = ImageRectToScreenRect(_packageImageRect);
             _dateScreenRect = ImageRectToScreenRect(_dateImageRect);
