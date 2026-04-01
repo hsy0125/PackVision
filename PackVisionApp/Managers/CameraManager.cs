@@ -52,6 +52,10 @@ namespace PackVisionApp.Managers
             try
             {
                 Bitmap bmp = RawToBitmap(_camEngine.LatestImageBuffer, _camEngine.Width, _camEngine.Height);
+
+                if (bmp == null)
+                    return;
+
                 FrameUpdated?.Invoke(bmp);
             }
             catch (Exception ex)
