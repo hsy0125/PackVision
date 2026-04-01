@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Text;
+
 
 namespace PackVisionApp.Models
 {
@@ -66,3 +68,4 @@ namespace PackVisionApp.Models
 		}
 	}
 }
+
