@@ -52,16 +52,128 @@ namespace PackVisionApp.UI
 		public MainForm()
 		{
 			InitializeComponent();
+			// [디버깅용]
+			// 
+			pictureBoxFrame.MouseClick += (s, e) =>
+			{
+				if (_originalFrame == null) return;
 
-			lblResult.Parent = pictureBoxFrame;
-			lblResult.BackColor = Color.Transparent;
-			lblResult.BringToFront();
-			// 처음 폼이 열릴 때 검사율 표시 초기화
-			UpdateInspectionRate();
+				// ── Zoom 모드 letterbox 보정
+				float imgW = _originalFrame.Width;
+				float imgH = _originalFrame.Height;
+				float boxW = pictureBoxFrame.Width;
+				float boxH = pictureBoxFrame.Height;
+
+				float scale = Math.Min(boxW / imgW, boxH / imgH);
+
+				float displayW = imgW * scale;
+				float displayH = imgH * scale;
+
+				// 이미지가 PictureBox 중앙에 표시되므로 offset 계산
+				float offsetX = (boxW - displayW) / 2f;
+				float offsetY = (boxH - displayH) / 2f;
+
+				// 클릭 좌표 → 실제 이미지 좌표
+				float imgX = (e.X - offsetX) / scale;
+				float imgY = (e.Y - offsetY) / scale;
+
+				if (imgX < 0 || imgY < 0 || imgX >= imgW || imgY >= imgH)
+				{
+					this.Text = "이미지 영역 밖 클릭";
+					return;
+				}
+
+				float ratioX = imgX / imgW;
+				float ratioY = imgY / imgH;
+				// [디버깅]
+				this.Text = $"X:{(int)imgX} Y:{(int)imgY} | ratioX:{ratioX:F2} ratioY:{ratioY:F2}";
+			};
 		}
-
-		private void _pictureBoxFrame_Click(object sender, EventArgs e)
+		private void MainForm_Resize(object sender, EventArgs e)
 		{
+			int margin = 10;
+			int formW = this.ClientSize.Width;
+			int formH = this.ClientSize.Height;
+
+			int menuH = menuStrip1.Height;           // 메뉴바 높이 (~33)
+			int topPanelH = 90;                      // panel1 고정 높이
+			int bottomPanelH = 230;                  // panelBottom 고정 높이
+			int statusPanelW = 250;                  // panelStatus 고정 너비
+
+			// ── 1. panel1 (상단 입력 영역) ──────────────────────
+			panel1.Left = margin;
+			panel1.Top = menuH + margin;
+			panel1.Width = formW - margin * 2;
+			panel1.Height = topPanelH;
+
+			// panel1 내부: RUN / STOP 버튼을 오른쪽 끝으로
+			btnRun.Left = panel1.Width - btnStop.Width - btnRun.Width - margin * 2;
+			btnStop.Left = panel1.Width - btnStop.Width - margin;
+
+			// ── 2. _imagePanel (이미지 영역) ────────────────────
+			int imagePanelTop = panel1.Bottom + margin;
+			int imagePanelH = formH - imagePanelTop - bottomPanelH - margin * 2;
+
+			_imagePanel.Left = margin;
+			_imagePanel.Top = imagePanelTop;
+			_imagePanel.Width = formW - margin * 2;
+			_imagePanel.Height = Math.Max(100, imagePanelH);
+
+			// pictureBoxFrame은 _imagePanel 전체를 꽉 채움
+			pictureBoxFrame.Left = 0;
+			pictureBoxFrame.Top = 0;
+			pictureBoxFrame.Width = _imagePanel.Width;
+			pictureBoxFrame.Height = _imagePanel.Height;
+
+			// lblResult는 pictureBoxFrame 위에 고정
+			lblResult.Left = 20;
+			lblResult.Top = 20;
+
+			// ── 3. panelBottom (하단 영역) ──────────────────────
+			panelBottom.Left = margin;
+			panelBottom.Top = _imagePanel.Bottom + margin;
+			panelBottom.Width = formW - margin * 2;
+			panelBottom.Height = bottomPanelH;
+
+			// ── 4. panelStatus (왼쪽 상태 패널) ─────────────────
+			panelStatus.Left = 0;
+			panelStatus.Top = 0;
+			panelStatus.Width = statusPanelW;
+			panelStatus.Height = panelBottom.Height;
+
+			// ── 5. panelLog (오른쪽 로그 패널) ──────────────────
+			panelLog.Left = panelStatus.Right + margin;
+			panelLog.Top = 0;
+			panelLog.Width = panelBottom.Width - panelStatus.Width - margin;
+			panelLog.Height = panelBottom.Height;
+
+			// ── 6. lvLogs (ListView) ─────────────────────────────
+			lvLogs.Left = 0;
+			lvLogs.Top = 0;
+			lvLogs.Width = panelLog.Width - margin;
+			lvLogs.Height = panelLog.Height - margin;
+		}
+		private void MainForm_Load(object sender, EventArgs e)
+		{
+
+			// Anchor 충돌 방지 - 코드로 직접 제어하므로 None으로 설정
+			lvLogs.Anchor = AnchorStyles.None;
+			panel1.Anchor = AnchorStyles.None;
+			_imagePanel.Anchor = AnchorStyles.None;
+			panelBottom.Anchor = AnchorStyles.None;
+			panelLog.Anchor = AnchorStyles.None;
+			panelStatus.Anchor = AnchorStyles.None;
+
+			// 기존 컬럼 설정 코드
+			lvLogs.Columns.Clear();
+			lvLogs.View = View.Details;
+			lvLogs.FullRowSelect = true;
+			lvLogs.GridLines = true;
+			lvLogs.Columns.Add("Result", 80);
+			lvLogs.Columns.Add("Time", 100);
+			lvLogs.Columns.Add("Reason", 100);
+			lvLogs.Columns.Add("Date", 120);
+			lvLogs.Columns.Add("Barcode", 180);
 		}
 
 		private void imageOpenToolStripMenuItem_Click(object sender, EventArgs e)
@@ -195,40 +307,49 @@ namespace PackVisionApp.UI
 				return;
 			}
 
-			// 현재는 임시 더미값
+			// ── 더미값 (나중에 실제 OCR/ZXing 결과로 교체)
 			string readBarcode = "8801062628476";
-			string readDate = "26-09-21";
+			string readDate = "27.01.27  B5 F1";
 			bool isPrintOk = true;
 
+			// ── 검사 판정
 			InspectionResult result = _inspectionManager.Inspect(
-				_expectedBarcode,
-				readBarcode,
-				_expectedDate,
-				readDate,
+				_expectedBarcode, readBarcode,
+				_expectedDate, readDate,
 				isPrintOk
 			);
 
 			_totalInspectionCount++;
 
-			using (Bitmap source = new Bitmap(_originalFrame))
+			// ── 오버레이용 작업 복사본 생성 (원본은 _originalFrame 유지)
+			Bitmap workBitmap = new Bitmap(_originalFrame);
+
+			// ── 바코드 오버레이 (기존 메서드 — workBitmap에 직접 그림)
+			ProcessBarcodeOverlay(workBitmap, readBarcode, _expectedBarcode);
+
+			// ── 날짜 오버레이 추가
+			// ProcessBarcodeOverlay 내부에서 pictureBoxFrame.Image 를 갱신하므로
+			// 날짜는 갱신된 이미지 위에 이어서 그려야 함
+			// → workBitmap을 공유하거나, 아래처럼 현재 표시 이미지를 받아서 처리
+			if (pictureBoxFrame.Image != null)
 			{
-				ProcessBarcodeOverlay(source, readBarcode, _expectedBarcode);
+				Bitmap current = new Bitmap(pictureBoxFrame.Image);
+				ProcessDateOverlay(current, readDate, _expectedDate);
+				// ProcessDateOverlay 안에서 pictureBoxFrame.Image 갱신됨
 			}
 
+			// ── 결과 표시
 			if (result.IsOverallOk)
 			{
 				_okInspectionCount++;
-
 				lblResult.Text = "OK";
 				lblResult.ForeColor = Color.LimeGreen;
-
 				AddLogItem("OK", "-", result.ActualDate, result.ActualBarcode, Color.Green);
 			}
 			else
 			{
 				lblResult.Text = "NOK";
 				lblResult.ForeColor = Color.Red;
-
 				AddLogItem("NOK", result.FailReasonText, result.ActualDate, result.ActualBarcode, Color.Red);
 			}
 
@@ -284,167 +405,6 @@ namespace PackVisionApp.UI
 		/// <summary>
 		/// 폼이 처음 열릴 때 ListView 컬럼 설정
 		/// </summary>
-		private void MainForm_Load(object sender, EventArgs e)
-		{
-			// 컬럼 중복 추가 방지
-			lvLogs.Columns.Clear();
-
-			lvLogs.View = View.Details;
-			lvLogs.FullRowSelect = true;
-			lvLogs.GridLines = true;
-
-			lvLogs.Columns.Add("Result", 80);
-			lvLogs.Columns.Add("Time", 100);
-			lvLogs.Columns.Add("Reason", 100);
-			lvLogs.Columns.Add("Date", 120);
-			lvLogs.Columns.Add("Barcode", 180);
-		}
-
-		private void btnTestCrop_Click(object sender, EventArgs e)
-		{
-			//string imagePath = @"C:\Users\user\Desktop\barcode.png";
-
-			//if (!File.Exists(imagePath))
-			//{
-			//	MessageBox.Show("이미지 파일이 없습니다.");
-			//	return;
-			//}
-
-			//Bitmap source = new Bitmap(imagePath);
-
-			//Rectangle searchRoi = new Rectangle(1000, 1200, 850, 300);
-			//Rectangle fittedRoi = BarcodeLabelDetector.FindWhiteLabelRect(source, searchRoi);
-
-			//if (fittedRoi == Rectangle.Empty)
-			//{
-			//	MessageBox.Show("흰색 라벨 ROI를 찾지 못했습니다.");
-			//	return;
-			//}
-
-			//Bitmap cropped = TextRegionCropper.Crop(source, fittedRoi);
-
-			//List<Rectangle> charBoxes = CharBlobDetector.FindCharBoxes(cropped);
-
-			//Bitmap debugCrop = new Bitmap(cropped);
-
-			//using (Graphics g = Graphics.FromImage(debugCrop))
-			//{
-			//	using (Pen pen = new Pen(Color.Lime, 2))
-			//	{
-			//		foreach (Rectangle box in charBoxes)
-			//		{
-			//			g.DrawRectangle(pen, box);
-			//		}
-			//	}
-			//}
-
-			//pictureBoxFrame.Image = debugCrop;
-
-		}
-
-
-		//private void ProcessBarcodeOverlay(Bitmap source, string readValue, string expectedValue)
-		//{
-		//	int x = (int)(source.Width * 0.20);
-		//	int y = (int)(source.Height * 0.55);   // 🔥 핵심 수정
-		//	int w = (int)(source.Width * 0.60);
-		//	int h = (int)(source.Height * 0.25);
-
-		//	Rectangle searchRoi = new Rectangle(x, y, w, h);
-		//	Rectangle fittedRoi = BarcodeLabelDetector.FindWhiteLabelRect(source, searchRoi);
-
-		//	if (fittedRoi == Rectangle.Empty)
-		//		return;
-
-		//	using (Bitmap labelCrop = TextRegionCropper.Crop(source, fittedRoi))
-		//	{
-		//		Rectangle numberRegion = BarcodeNumberRegionDetector.GetNumberRegion(labelCrop);
-
-		//		using (Bitmap numberCrop = TextRegionCropper.Crop(labelCrop, numberRegion))
-		//		{
-		//			List<Rectangle> charBoxes = CharBlobDetector.FindCharBoxes(numberCrop)
-		//				.OrderBy(r => r.X)
-		//				.ToList();
-
-		//			MessageBox.Show(
-		//				$"fittedRoi={fittedRoi}\n" +
-		//				$"numberRegion={numberRegion}\n" +
-		//				$"charBoxes.Count={charBoxes.Count}");
-
-		//			if (charBoxes.Count > readValue.Length)
-		//			{
-		//				charBoxes = charBoxes.Take(readValue.Length).ToList();
-		//			}
-
-		//			Bitmap debugImage = new Bitmap(source);
-
-		//			using (Graphics g = Graphics.FromImage(debugImage))
-		//			using (Font font = new Font("Arial", 20, FontStyle.Bold))
-		//			{
-		//				// 1) search ROI
-		//				using (Pen searchPen = new Pen(Color.Yellow, 3))
-		//				{
-		//					g.DrawRectangle(searchPen, searchRoi);
-		//				}
-
-		//				// 2) fitted ROI
-		//				using (Pen fitPen = new Pen(Color.Cyan, 3))
-		//				{
-		//					g.DrawRectangle(fitPen, fittedRoi);
-		//				}
-
-		//				// 3) number region on original
-		//				Rectangle numberRegionOnOriginal = new Rectangle(
-		//					fittedRoi.X + numberRegion.X,
-		//					fittedRoi.Y + numberRegion.Y,
-		//					numberRegion.Width,
-		//					numberRegion.Height);
-
-		//				using (Pen numberPen = new Pen(Color.Magenta, 3))
-		//				{
-		//					g.DrawRectangle(numberPen, numberRegionOnOriginal);
-		//				}
-
-		//				// 4) char boxes + text
-		//				for (int i = 0; i < charBoxes.Count; i++)
-		//				{
-		//					Rectangle box = charBoxes[i];
-
-		//					Rectangle originalBox = new Rectangle(
-		//						fittedRoi.X + numberRegion.X + box.X,
-		//						fittedRoi.Y + numberRegion.Y + box.Y,
-		//						box.Width,
-		//						box.Height);
-
-		//					string text = i < readValue.Length ? readValue[i].ToString() : "?";
-
-		//					bool isMatch = i < readValue.Length &&
-		//								   i < expectedValue.Length &&
-		//								   readValue[i] == expectedValue[i];
-
-		//					Color color = isMatch ? Color.Lime : Color.Red;
-
-		//					using (Pen pen = new Pen(color, 3))
-		//					using (Brush brush = new SolidBrush(color))
-		//					{
-		//						g.DrawRectangle(pen, originalBox);
-		//						g.DrawString(
-		//							text,
-		//							font,
-		//							brush,
-		//							originalBox.X,
-		//							Math.Max(0, originalBox.Y - 28));
-		//					}
-		//				}
-		//			}
-
-		//			Image oldImage = pictureBoxFrame.Image;
-		//			pictureBoxFrame.Image = debugImage;
-		//			oldImage?.Dispose();
-		//		}
-		//	}
-		//}
-
 
 
 		private void ProcessBarcodeOverlay(Bitmap source, string readValue, string expectedValue)
@@ -479,7 +439,7 @@ namespace PackVisionApp.UI
 					Bitmap debugImage = new Bitmap(source);
 
 					using (Graphics g = Graphics.FromImage(debugImage))
-					using (Font font = new Font("Arial", 16, FontStyle.Bold))
+					using (Font font = new Font("Arial", 18, FontStyle.Bold))
 					{
 						for (int i = 0; i < charBoxes.Count; i++)
 						{
@@ -520,5 +480,60 @@ namespace PackVisionApp.UI
 				}
 			}
 		}
+
+		/// <summary>
+		/// 원본 이미지 위에 날짜 ROI 박스와 읽은 날짜 문자열을 오버레이
+		/// 기준 날짜와 비교해서 같으면 초록, 다르면 빨강
+		/// </summary>
+		private void ProcessDateOverlay(Bitmap source, string readDate, string expectedDate)
+		{
+			// ── searchRoi를 스티커 실제 위치에 맞게 수정
+			int x = (int)(source.Width * 0.15);  // 좌측 X 여유 2%
+			int y = (int)(source.Height * 0.23);  // 상단 Y 여유 3%
+			int w = (int)(source.Width * 0.11);  // 0.23+0.02 - 0.15 = 0.10 + 여유
+			int h = (int)(source.Height * 0.57);  // 0.76+0.02 - 0.23 = 0.55 + 여유
+			Rectangle searchRoi = new Rectangle(x, y, w, h);
+
+			Rectangle labelRect = DateLabelDetector.FindDateLabelRect(source, searchRoi);
+			if (labelRect == Rectangle.Empty)
+				labelRect = searchRoi;
+
+			Rectangle dateTextRect = DateTextRegionDetector.GetDateTextRegion(labelRect);
+
+			bool isMatch = DateNormalizer.IsMatch(readDate, expectedDate);
+			Color overlayColor = isMatch ? Color.Lime : Color.Red;
+
+			using (Graphics g = Graphics.FromImage(source))
+			using (Pen pen = new Pen(overlayColor, 3))
+			using (Font font = new Font("Arial", 30, FontStyle.Bold))
+			using (Brush brush = new SolidBrush(overlayColor))
+			{
+				//// [디버그] searchRoi — 파란색
+				//g.DrawRectangle(new Pen(Color.Blue, 2), searchRoi);
+
+				//// [디버그] labelRect 전체 — 노란색
+				//g.DrawRectangle(new Pen(Color.Yellow, 2), labelRect);
+
+				// 날짜 텍스트 ROI — 초록/빨강
+				g.DrawRectangle(pen, dateTextRect);
+
+				// 텍스트 세로 회전해서 박스 왼쪽에 표시
+				g.TranslateTransform(
+					dateTextRect.X - 5,
+					dateTextRect.Y + dateTextRect.Height);
+				g.RotateTransform(-90);
+				g.DrawString(readDate, font, brush, 0, 0);
+				g.ResetTransform();
+
+				this.Text = $"search:{searchRoi} | label:{labelRect} | dateText:{dateTextRect}";
+
+			}
+
+			Image old = pictureBoxFrame.Image;
+			pictureBoxFrame.Image = source;
+			old?.Dispose();
+		}
+		
+		}
 	}
-}
+

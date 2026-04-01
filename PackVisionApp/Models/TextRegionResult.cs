@@ -4,9 +4,11 @@ using System.Text;
 
 namespace PackVisionApp.Models
 {
-	// 텍스트 영역 검사 결과 모델
-	// ROI 영역에서 읽은 문자열과 기준 문자열 비교 결과를 담는 모델
-	// 선준님이 넘겨준 결과 저장
+	/* 텍스트 영역 검사 결과 모델
+	   ROI 영역에서 읽은 문자열과 기준 문자열 비교 결과를 담는 모델
+	   선준님이 넘겨준 결과 저장
+	*/
+
 	public class TextRegionResult
 	{
 		public string ItemType { get; set; } = string.Empty;      // "BARCODE", "DATE"

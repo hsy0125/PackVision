@@ -7,6 +7,34 @@ using OpenCvSharp.Extensions;
 
 namespace PackVisionApp.Services
 {
+	/*
+	 * CharBlobDetector
+	 * 
+	 * 역할:
+	 * - 숫자 영역 이미지에서 개별 문자(숫자) 단위의 바운딩 박스를 검출
+	 * 
+	 * 사용 목적:
+	 * - OCR 전에 각 숫자를 개별 영역으로 분리
+	 * - 숫자 단위 인식 정확도 향상 및 후처리(정렬, 필터링)에 활용
+	 * 
+	 * 동작 방식:
+	 * - Gray 변환 → Otsu 이진화(BinaryInv)로 숫자를 흰색으로 강조
+	 * - Morphology Close로 끊어진 숫자 획을 연결
+	 * - Contour 기반으로 문자 후보 영역 검출
+	 * 
+	 * 필터링 기준:
+	 * - 너무 작은 영역 제거 (노이즈 제거)
+	 * - 너무 큰 영역 제거 (배경/오검출 제거)
+	 * - 일정 높이 이상만 유지 (숫자 형태 보장)
+	 * 
+	 * 특징:
+	 * - Contour 기반으로 빠르고 직관적인 문자 분리
+	 * - X 좌표 기준 정렬 → 숫자 순서 유지
+	 * - 다양한 조명/배경에서도 비교적 안정적으로 동작
+	 * 
+	 * 출력:
+	 * - 좌→우 순서로 정렬된 문자 영역 Rectangle 리스트 반환
+	 */
 	public static class CharBlobDetector
 	{
 		public static List<Rectangle> FindCharBoxes(Bitmap sourceBitmap)

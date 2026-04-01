@@ -51,7 +51,6 @@
 			imageOpenToolStripMenuItem = new ToolStripMenuItem();
 			imageToolStripMenuItem = new ToolStripMenuItem();
 			imageSaveToolStripMenuItem = new ToolStripMenuItem();
-			btnTestCrop = new Button();
 			_imagePanel.SuspendLayout();
 			((System.ComponentModel.ISupportInitialize)pictureBoxFrame).BeginInit();
 			panel1.SuspendLayout();
@@ -83,7 +82,6 @@
 			// _imagePanel
 			// 
 			_imagePanel.AllowDrop = true;
-			_imagePanel.Controls.Add(btnTestCrop);
 			_imagePanel.Controls.Add(lblResult);
 			_imagePanel.Controls.Add(pictureBoxFrame);
 			_imagePanel.Location = new Point(12, 115);
@@ -104,14 +102,12 @@
 			// 
 			// pictureBoxFrame
 			// 
-			pictureBoxFrame.Dock = DockStyle.Fill;
 			pictureBoxFrame.Location = new Point(0, 0);
 			pictureBoxFrame.Name = "pictureBoxFrame";
 			pictureBoxFrame.Size = new Size(1304, 449);
 			pictureBoxFrame.SizeMode = PictureBoxSizeMode.Zoom;
 			pictureBoxFrame.TabIndex = 0;
 			pictureBoxFrame.TabStop = false;
-			pictureBoxFrame.Click += _pictureBoxFrame_Click;
 			// 
 			// txtDate
 			// 
@@ -199,6 +195,7 @@
 			// 
 			// lvLogs
 			// 
+			lvLogs.Anchor = AnchorStyles.Top | AnchorStyles.Right;
 			lvLogs.FullRowSelect = true;
 			lvLogs.GridLines = true;
 			lvLogs.Location = new Point(35, 29);
@@ -252,7 +249,7 @@
 			menuStrip1.Items.AddRange(new ToolStripItem[] { imageOpenToolStripMenuItem });
 			menuStrip1.Location = new Point(0, 0);
 			menuStrip1.Name = "menuStrip1";
-			menuStrip1.Size = new Size(1337, 33);
+			menuStrip1.Size = new Size(1335, 33);
 			menuStrip1.TabIndex = 7;
 			menuStrip1.Text = "menuStrip1";
 			// 
@@ -278,21 +275,11 @@
 			imageSaveToolStripMenuItem.Text = "ImageSave";
 			imageSaveToolStripMenuItem.Click += imageSaveToolStripMenuItem_Click;
 			// 
-			// btnTestCrop
-			// 
-			btnTestCrop.Location = new Point(1151, 67);
-			btnTestCrop.Name = "btnTestCrop";
-			btnTestCrop.Size = new Size(140, 34);
-			btnTestCrop.TabIndex = 4;
-			btnTestCrop.Text = "크롭 테스트";
-			btnTestCrop.UseVisualStyleBackColor = true;
-			btnTestCrop.Click += btnTestCrop_Click;
-			// 
 			// MainForm
 			// 
 			AutoScaleDimensions = new SizeF(10F, 25F);
 			AutoScaleMode = AutoScaleMode.Font;
-			ClientSize = new Size(1337, 916);
+			ClientSize = new Size(1335, 916);
 			Controls.Add(panelBottom);
 			Controls.Add(_imagePanel);
 			Controls.Add(panel1);
@@ -301,6 +288,7 @@
 			Name = "MainForm";
 			Text = "MainForm";
 			Load += MainForm_Load;
+			Resize += MainForm_Resize;
 			_imagePanel.ResumeLayout(false);
 			_imagePanel.PerformLayout();
 			((System.ComponentModel.ISupportInitialize)pictureBoxFrame).EndInit();
@@ -343,6 +331,5 @@
 		private ListView lvLogs;
 		private Label label1;
 		private Label label2;
-		private Button btnTestCrop;
 	}
 }

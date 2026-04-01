@@ -4,8 +4,6 @@ using System.Text;
 using PackVisionApp.Models;
 using System;
 using System.IO;
-using System.Text;
-using PackVisionApp.Models;
 
 namespace PackVisionApp.Managers
 {

@@ -7,6 +7,26 @@ using System.Drawing;
 
 namespace PackVisionApp.Services
 {
+	/*
+	 * BarcodeLabelDetector
+	 * 
+	 * 역할:
+	 * - 입력 이미지에서 흰색 라벨(바코드 영역)을 자동으로 검출
+	 * - Threshold + Morphology + Contour 기반으로 라벨 후보 영역 추출
+	 * 
+	 * 사용 목적:
+	 * - 바코드 / 날짜 검사 전에 ROI 자동 설정
+	 * - 수동 ROI 없이도 검사 위치를 안정적으로 확보
+	 * 
+	 * 특징:
+	 * - searchRoi 기반으로 탐색 범위를 제한하여 성능 최적화
+	 * - 가장 큰 흰색 영역을 라벨로 판단
+	 * - 잘못된 ROI 입력 시 전체 이미지 fallback 처리
+	 * 
+	 * 출력:
+	 * - 원본 이미지 기준 Rectangle (라벨 위치)
+	 * - 검출 실패 시 Rectangle.Empty 반환
+	 */
 	public static class BarcodeLabelDetector
 	{
 		public static Rectangle FindWhiteLabelRect(Bitmap sourceBitmap, Rectangle searchRoi)
