@@ -21,8 +21,8 @@ namespace PackVisionApp.UI
 			btnDateRoi = new Button();
 			btnBarcodeRoi = new Button();
 			_imagePanel = new Panel();
-			pictureBoxFrame = new PictureBox();
 			lblResult = new Label();
+			imageViewCtrl = new ImageViewCtrl();
 			txtDate = new TextBox();
 			btnDate = new Button();
 			panel1 = new Panel();
@@ -34,6 +34,7 @@ namespace PackVisionApp.UI
 			panelLog = new Panel();
 			lvLogs = new ListView();
 			panelStatus = new Panel();
+			btnLogReset = new Button();
 			lblInspectionSummary = new Label();
 			lblInspectionCount = new Label();
 			lblInspectionRate = new Label();
@@ -43,7 +44,6 @@ namespace PackVisionApp.UI
 			imageToolStripMenuItem = new ToolStripMenuItem();
 			imageSaveToolStripMenuItem = new ToolStripMenuItem();
 			_imagePanel.SuspendLayout();
-			((System.ComponentModel.ISupportInitialize)pictureBoxFrame).BeginInit();
 			panel1.SuspendLayout();
 			panelBottom.SuspendLayout();
 			panelLog.SuspendLayout();
@@ -57,7 +57,7 @@ namespace PackVisionApp.UI
 			btnRun.Name = "btnRun";
 			btnRun.Size = new Size(74, 56);
 			btnRun.TabIndex = 0;
-			btnRun.Text = "RUN";
+			btnRun.Text = "가동";
 			btnRun.UseVisualStyleBackColor = true;
 			btnRun.Click += btnRun_Click;
 			// 
@@ -67,7 +67,7 @@ namespace PackVisionApp.UI
 			btnStop.Name = "btnStop";
 			btnStop.Size = new Size(74, 56);
 			btnStop.TabIndex = 1;
-			btnStop.Text = "STOP";
+			btnStop.Text = "정지";
 			btnStop.UseVisualStyleBackColor = true;
 			btnStop.Click += btnStop_Click;
 			// 
@@ -103,24 +103,11 @@ namespace PackVisionApp.UI
 			// 
 			_imagePanel.AllowDrop = true;
 			_imagePanel.Controls.Add(lblResult);
-			_imagePanel.Controls.Add(pictureBoxFrame);
+			_imagePanel.Controls.Add(imageViewCtrl);
 			_imagePanel.Location = new Point(12, 115);
 			_imagePanel.Name = "_imagePanel";
 			_imagePanel.Size = new Size(1304, 449);
 			_imagePanel.TabIndex = 2;
-			// 
-			// pictureBoxFrame
-			// 
-			pictureBoxFrame.Location = new Point(0, 0);
-			pictureBoxFrame.Name = "pictureBoxFrame";
-			pictureBoxFrame.Size = new Size(1304, 449);
-			pictureBoxFrame.SizeMode = PictureBoxSizeMode.Zoom;
-			pictureBoxFrame.TabIndex = 0;
-			pictureBoxFrame.TabStop = false;
-			pictureBoxFrame.Paint += pbCamera_Paint;
-			pictureBoxFrame.MouseDown += pbCamera_MouseDown;
-			pictureBoxFrame.MouseMove += pbCamera_MouseMove;
-			pictureBoxFrame.MouseUp += pbCamera_MouseUp;
 			// 
 			// lblResult
 			// 
@@ -131,7 +118,18 @@ namespace PackVisionApp.UI
 			lblResult.Name = "lblResult";
 			lblResult.Size = new Size(337, 96);
 			lblResult.TabIndex = 3;
-			lblResult.Text = "lblResult";
+			lblResult.Text = "대기";
+			// 
+			// imageViewCtrl
+			// 
+			imageViewCtrl.Location = new Point(0, 0);
+			imageViewCtrl.Name = "imageViewCtrl";
+			imageViewCtrl.Size = new Size(1304, 449);
+			imageViewCtrl.TabIndex = 0;
+			imageViewCtrl.TabStop = true;
+			imageViewCtrl.MouseDown += pbCamera_MouseDown;
+			imageViewCtrl.MouseMove += pbCamera_MouseMove;
+			imageViewCtrl.MouseUp += pbCamera_MouseUp;
 			// 
 			// txtDate
 			// 
@@ -173,18 +171,18 @@ namespace PackVisionApp.UI
 			label2.AutoSize = true;
 			label2.Location = new Point(11, 3);
 			label2.Name = "label2";
-			label2.Size = new Size(60, 25);
+			label2.Size = new Size(54, 25);
 			label2.TabIndex = 7;
-			label2.Text = "Date:";
+			label2.Text = "날짜";
 			// 
 			// label1
 			// 
 			label1.AutoSize = true;
-			label1.Location = new Point(446, 7);
+			label1.Location = new Point(446, 3);
 			label1.Name = "label1";
-			label1.Size = new Size(88, 25);
+			label1.Size = new Size(83, 25);
 			label1.TabIndex = 8;
-			label1.Text = "Barcode:";
+			label1.Text = "바코드";
 			// 
 			// txtBarcode
 			// 
@@ -233,6 +231,7 @@ namespace PackVisionApp.UI
 			// 
 			// panelStatus
 			// 
+			panelStatus.Controls.Add(btnLogReset);
 			panelStatus.Controls.Add(lblInspectionSummary);
 			panelStatus.Controls.Add(lblInspectionCount);
 			panelStatus.Controls.Add(lblInspectionRate);
@@ -241,10 +240,20 @@ namespace PackVisionApp.UI
 			panelStatus.Size = new Size(233, 303);
 			panelStatus.TabIndex = 0;
 			// 
+			// btnLogReset
+			// 
+			btnLogReset.Location = new Point(18, 200);
+			btnLogReset.Name = "btnLogReset";
+			btnLogReset.Size = new Size(198, 40);
+			btnLogReset.TabIndex = 3;
+			btnLogReset.Text = "로그 리셋";
+			btnLogReset.UseVisualStyleBackColor = true;
+			btnLogReset.Click += btnLogReset_Click;
+			// 
 			// lblInspectionSummary
 			// 
 			lblInspectionSummary.AutoSize = true;
-			lblInspectionSummary.Location = new Point(24, 188);
+			lblInspectionSummary.Location = new Point(138, 31);
 			lblInspectionSummary.Name = "lblInspectionSummary";
 			lblInspectionSummary.Size = new Size(59, 25);
 			lblInspectionSummary.TabIndex = 2;
@@ -253,7 +262,7 @@ namespace PackVisionApp.UI
 			// lblInspectionCount
 			// 
 			lblInspectionCount.AutoSize = true;
-			lblInspectionCount.Location = new Point(24, 118);
+			lblInspectionCount.Location = new Point(24, 92);
 			lblInspectionCount.Name = "lblInspectionCount";
 			lblInspectionCount.Size = new Size(114, 25);
 			lblInspectionCount.TabIndex = 1;
@@ -293,21 +302,21 @@ namespace PackVisionApp.UI
 			imageOpenToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { imageToolStripMenuItem, imageSaveToolStripMenuItem });
 			imageOpenToolStripMenuItem.Name = "imageOpenToolStripMenuItem";
 			imageOpenToolStripMenuItem.Size = new Size(55, 29);
-			imageOpenToolStripMenuItem.Text = "File";
+			imageOpenToolStripMenuItem.Text = "파일";
 			imageOpenToolStripMenuItem.Click += imageOpenToolStripMenuItem_Click;
 			// 
 			// imageToolStripMenuItem
 			// 
 			imageToolStripMenuItem.Name = "imageToolStripMenuItem";
 			imageToolStripMenuItem.Size = new Size(210, 34);
-			imageToolStripMenuItem.Text = "ImageOpen";
+			imageToolStripMenuItem.Text = "이미지 열기";
 			imageToolStripMenuItem.Click += imageToolStripMenuItem_Click;
 			// 
 			// imageSaveToolStripMenuItem
 			// 
 			imageSaveToolStripMenuItem.Name = "imageSaveToolStripMenuItem";
 			imageSaveToolStripMenuItem.Size = new Size(210, 34);
-			imageSaveToolStripMenuItem.Text = "ImageSave";
+			imageSaveToolStripMenuItem.Text = "이미지 저장";
 			imageSaveToolStripMenuItem.Click += imageSaveToolStripMenuItem_Click;
 			// 
 			// MainForm
@@ -315,20 +324,19 @@ namespace PackVisionApp.UI
 			AutoScaleDimensions = new SizeF(10F, 25F);
 			AutoScaleMode = AutoScaleMode.Font;
 			ClientSize = new Size(1344, 940);
-			MinimumSize = new Size(960, 640);
 			Controls.Add(lblDebug);
 			Controls.Add(panelBottom);
 			Controls.Add(_imagePanel);
 			Controls.Add(panel1);
 			Controls.Add(menuStrip1);
 			MainMenuStrip = menuStrip1;
+			MinimumSize = new Size(960, 640);
 			Name = "MainForm";
-			Text = "MainForm";
+			Text = "PackVision · 비전 검사";
 			Load += MainForm_Load;
 			Resize += MainForm_Resize;
 			_imagePanel.ResumeLayout(false);
 			_imagePanel.PerformLayout();
-			((System.ComponentModel.ISupportInitialize)pictureBoxFrame).EndInit();
 			panel1.ResumeLayout(false);
 			panel1.PerformLayout();
 			panelBottom.ResumeLayout(false);
@@ -350,7 +358,7 @@ namespace PackVisionApp.UI
 		private Button btnDateRoi;
 		private Button btnBarcodeRoi;
 		private Panel _imagePanel;
-		private PictureBox pictureBoxFrame;
+		private ImageViewCtrl imageViewCtrl;
 		private TextBox txtDate;
 		private Button btnDate;
 		private Panel panel1;
@@ -362,6 +370,7 @@ namespace PackVisionApp.UI
 		private Panel panelLog;
 		private ListView lvLogs;
 		private Panel panelStatus;
+		private Button btnLogReset;
 		private Label lblResult;
 		private Label lblInspectionSummary;
 		private Label lblInspectionCount;
