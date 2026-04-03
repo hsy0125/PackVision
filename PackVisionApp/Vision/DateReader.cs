@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Text.RegularExpressions;
 using PackVisionApp.Models;
@@ -100,11 +100,12 @@ namespace PackVisionApp.Vision
 
                 return DateResult.Fail("date_ocr_fail");
             }
-            catch
-            {
-                return DateResult.Fail("date_ocr_fail");
-            }
-        }
+			catch (Exception ex)
+			{
+				Debug.WriteLine("[DateReader ERROR] " + ex.ToString());
+				return DateResult.Fail("date_ocr_fail");
+			}
+		}
 
         private Rectangle ClampRect(Rectangle roi, int frameWidth, int frameHeight)
         {
@@ -215,21 +216,27 @@ namespace PackVisionApp.Vision
 
             string digits = Regex.Replace(raw, @"[^0-9]", "");
 
-            if (digits.Length == 8)
-            {
-                string y = digits.Substring(0, 4);
-                string m = digits.Substring(4, 2);
-                string d = digits.Substring(6, 2);
-                return $"{y}-{m}-{d}";
-            }
+			// Tesseract 결과에 잡음 숫자가 섞여 digits 길이가 6/8이 아닌 경우가 있어
+			// (예: "27.01.27 B5 F1"), 무조건 실패하지 말고 "마지막" 날짜 구간을 사용한다.
+			// - digits.Length >= 8 이면 마지막 8자리(YYYYMMDD) 사용
+			// - 그 외 digits.Length >= 6 이면 마지막 6자리(YYMMDD) 사용
+			if (digits.Length >= 8)
+			{
+				digits = digits.Substring(digits.Length - 8, 8);
+				string y = digits.Substring(0, 4);
+				string m = digits.Substring(4, 2);
+				string d = digits.Substring(6, 2);
+				return $"{y}-{m}-{d}";
+			}
 
-            if (digits.Length == 6)
-            {
-                string y = "20" + digits.Substring(0, 2);
-                string m = digits.Substring(2, 2);
-                string d = digits.Substring(4, 2);
-                return $"{y}-{m}-{d}";
-            }
+			if (digits.Length >= 6)
+			{
+				digits = digits.Substring(digits.Length - 6, 6);
+				string y = "20" + digits.Substring(0, 2);
+				string m = digits.Substring(2, 2);
+				string d = digits.Substring(4, 2);
+				return $"{y}-{m}-{d}";
+			}
 
             return null;
         }
