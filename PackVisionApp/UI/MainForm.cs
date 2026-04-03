@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using PackVisionApp.Core;
 using PackVisionApp.Managers;
 using PackVisionApp.Models;
 using PackVisionApp.Service;
@@ -58,10 +59,7 @@ namespace PackVisionApp.UI
 		// 선준 필드 — 자동 검사
 		// ═══════════════════════════════════════
 		private bool _isAutoInspecting = false;
-		private int _isInspectionBusy = 0;
-		private DateTime _lastInspectionTime = DateTime.MinValue;
-		// 검사 버튼 1회 클릭 후 자동 검사 주기(200ms)
-		private readonly TimeSpan _inspectionInterval = TimeSpan.FromMilliseconds(200);
+		private readonly InspectStage _inspectStage;
 
 		// ═══════════════════════════════════════
 		// ROI 필드
@@ -117,7 +115,31 @@ namespace PackVisionApp.UI
 		private string _candidateDateValue = string.Empty;
 		private int _dateCandidateStableFrames = 0;
 
-		private const int StableFramesToCommit = 3;
+		// 같은 후보가 연속으로 나와야 확정 (오버레이용). 12는 너무 까다로워서 4로 낮춤.
+		private const int StableFramesToCommit = 4;
+
+		// 큰 OK/NOK 라벨만 연속 몇 번 같을 때만 바꿈 (숫자 작을수록 화면이 빨리 따라감)
+		private const int JudgementHysteresisFrames = 3;
+
+		// 최근 N번 읽기 다수결 (판정용). SimpleMajorityBuffer 참고.
+		private readonly SimpleMajorityBuffer _barcodeReadVote = new SimpleMajorityBuffer(5);
+		private readonly SimpleMajorityBuffer _dateReadVote = new SimpleMajorityBuffer(5);
+		private bool _judgementHysteresisPrimed;
+		private bool _lastAppliedOverallOk;
+		private int _verdictFlipStreak;
+		private bool _verdictFlipTowardOk;
+
+		// 산업용 UI 팔레트 (다크 베이스 + 네온 시안)
+		private static readonly Color UiBg = Color.FromArgb(0x1E, 0x22, 0x2D);
+		private static readonly Color UiSurface = Color.FromArgb(0x28, 0x2E, 0x3C);
+		private static readonly Color UiDeep = Color.FromArgb(0x15, 0x18, 0x21);
+		private static readonly Color UiAccent = Color.FromArgb(0x00, 0xFF, 0xCC);
+		private static readonly Color UiAccentGlow = Color.FromArgb(0x00, 0xD4, 0xB0);
+		private static readonly Color UiDanger = Color.FromArgb(0xFF, 0x44, 0x66);
+		private static readonly Color UiDangerDark = Color.FromArgb(0x55, 0x22, 0x2C);
+		private static readonly Color UiText = Color.FromArgb(0xE8, 0xEC, 0xF2);
+		private static readonly Color UiMuted = Color.FromArgb(0x9A, 0xA4, 0xB8);
+		private const int ImagePanelFramePx = 2;
 
 	// OCR 값 안정화 헬퍼
 	private string GetBarcodeNorm(string raw)
@@ -208,14 +230,9 @@ namespace PackVisionApp.UI
 				}
 			}
 
-			// 아직 stable이 없으면 candidate를 임시로 사용(초기 수렴)
-			stableBarcodeOut = string.IsNullOrEmpty(_stableBarcodeValue)
-				? (string.IsNullOrWhiteSpace(barcodeCandidateValue) ? string.Empty : barcodeCandidateValue)
-				: _stableBarcodeValue;
-
-			stableDateOut = string.IsNullOrEmpty(_stableDateValue)
-				? (string.IsNullOrWhiteSpace(dateCandidateValue) ? string.Empty : dateCandidateValue)
-				: _stableDateValue;
+			// 판정용: 확정(stable)이 있으면 그 값만 사용. 없으면 비워 두고 판정은 보류(히스테리시스·표시와 분리)
+			stableBarcodeOut = _stableBarcodeValue ?? string.Empty;
+			stableDateOut = _stableDateValue ?? string.Empty;
 		}
 	}
 
@@ -226,6 +243,12 @@ namespace PackVisionApp.UI
 		{
 			InitializeComponent();
 
+			imageViewCtrl.PaintOverlay += pbCamera_Paint;
+
+			_inspectStage = new InspectStage(_cameraMgr);
+			_inspectStage.RunInspectSync = ExecuteInspectFromGrab;
+			FormClosing += (_, _) => _inspectStage.Dispose();
+
 			// 기본값 세팅
 			txtDate.Text = "27-01-28";
 			txtBarcode.Text = "8 801062 628476";
@@ -235,34 +258,21 @@ namespace PackVisionApp.UI
 			btnDateRoi.Click += btnDateRoi_Click;
 			btnBarcodeRoi.Click += btnBarcodeRoi_Click;
 
-			// 디버그 클릭 좌표
-			pictureBoxFrame.MouseClick += (s, e) =>
+			// 디버그 클릭 좌표 (줌·팬 반영)
+			imageViewCtrl.MouseClick += (s, e) =>
 			{
-				if (_originalFrame == null) return;
-
-				float imgW = _originalFrame.Width;
-				float imgH = _originalFrame.Height;
-				float boxW = pictureBoxFrame.Width;
-				float boxH = pictureBoxFrame.Height;
-
-				float scale = Math.Min(boxW / imgW, boxH / imgH);
-				float displayW = imgW * scale;
-				float displayH = imgH * scale;
-				float offsetX = (boxW - displayW) / 2f;
-				float offsetY = (boxH - displayH) / 2f;
-
-				float imgX = (e.X - offsetX) / scale;
-				float imgY = (e.Y - offsetY) / scale;
-
-				if (imgX < 0 || imgY < 0 || imgX >= imgW || imgY >= imgH)
+				if (!imageViewCtrl.HasImage) return;
+				if (!imageViewCtrl.TryClientPointToImage(e.Location, out System.Drawing.Point imgPt))
 				{
 					this.Text = "이미지 영역 밖 클릭";
 					return;
 				}
 
-				float ratioX = imgX / imgW;
-				float ratioY = imgY / imgH;
-				this.Text = $"X:{(int)imgX} Y:{(int)imgY} | ratioX:{ratioX:F2} ratioY:{ratioY:F2}";
+				float imgW = imageViewCtrl.ImagePixelWidth;
+				float imgH = imageViewCtrl.ImagePixelHeight;
+				float ratioX = imgPt.X / imgW;
+				float ratioY = imgPt.Y / imgH;
+				this.Text = $"X:{imgPt.X} Y:{imgPt.Y} | ratioX:{ratioX:F2} ratioY:{ratioY:F2}";
 			};
 
 			UpdateInspectionRate();
@@ -271,60 +281,64 @@ namespace PackVisionApp.UI
 
 		private void ApplyUiTheme()
 		{
-			Color appBack = Color.FromArgb(0x40, 0x40, 0x40);
-			Color accentBlue = Color.FromArgb(0x4A, 0x76, 0xFD);
-			Color runGreen = Color.FromArgb(0x00, 0xFF, 0x00);
-			Color stopRed = Color.FromArgb(0xFF, 0x00, 0x00);
-			Color submitDark = Color.FromArgb(0x1A, 0x1A, 0x1A);
+			BackColor = UiBg;
+			ForeColor = UiText;
 
-			BackColor = appBack;
-			ForeColor = Color.White;
+			panel1.BackColor = UiSurface;
+			panelBottom.BackColor = UiBg;
 
-			panel1.BackColor = appBack;
-			panelBottom.BackColor = appBack;
+			label1.ForeColor = UiMuted;
+			label2.ForeColor = UiMuted;
 
-			label1.ForeColor = Color.White;
-			label2.ForeColor = Color.White;
+			_imagePanel.BackColor = UiAccent;
+			imageViewCtrl.BackColor = UiDeep;
 
-			_imagePanel.BackColor = Color.White;
-			pictureBoxFrame.BackColor = Color.White;
+			panelStatus.BackColor = UiSurface;
+			panelLog.BackColor = UiSurface;
+			lvLogs.BackColor = UiDeep;
+			lvLogs.ForeColor = UiText;
+			lvLogs.BorderStyle = BorderStyle.FixedSingle;
 
-			panelStatus.BackColor = Color.White;
-			panelLog.BackColor = Color.White;
-			lvLogs.BackColor = Color.White;
-			lvLogs.ForeColor = Color.Black;
-
-			lblInspectionSummary.ForeColor = Color.Black;
-			lblInspectionCount.ForeColor = Color.Black;
-			lblInspectionRate.ForeColor = Color.FromArgb(0x00, 0xC8, 0x00);
+			lblInspectionSummary.ForeColor = UiMuted;
+			lblInspectionCount.ForeColor = UiText;
+			lblInspectionRate.ForeColor = UiAccent;
 			lblInspectionRate.Font = new Font("맑은 고딕", 22F, FontStyle.Bold, GraphicsUnit.Point);
 
-			StyleFillButton(btnRun, runGreen, Color.White);
-			StyleFillButton(btnStop, stopRed, Color.White);
-			StyleFillButton(btnInspect, accentBlue, Color.White);
-			StyleFillButton(btnDateRoi, accentBlue, Color.White);
-			StyleFillButton(btnBarcodeRoi, accentBlue, Color.White);
-			StyleFillButton(btnDate, submitDark, Color.White);
-			StyleFillButton(btnBarcode, submitDark, Color.White);
+			lblResult.Font = new Font("맑은 고딕", 28F, FontStyle.Bold, GraphicsUnit.Point);
+			lblResult.ForeColor = UiMuted;
+			lblResult.BackColor = Color.Transparent;
 
-			txtDate.BackColor = Color.White;
-			txtDate.ForeColor = Color.Black;
-			txtBarcode.BackColor = Color.White;
-			txtBarcode.ForeColor = Color.Black;
+			// 가동: 시안 솔리드 / 정지: 다크 레드 악센트
+			StyleIndustrialSolidButton(btnRun, UiAccentGlow, Color.FromArgb(12, 20, 24), UiAccent);
+			StyleIndustrialSolidButton(btnStop, UiDangerDark, Color.FromArgb(255, 180, 190), UiDanger);
+			StyleIndustrialSolidButton(btnInspect, Color.FromArgb(0, 188, 155), Color.FromArgb(10, 18, 22), UiAccent);
+			StyleIndustrialOutlineButton(btnDateRoi, UiAccent, UiAccent, UiSurface);
+			StyleIndustrialOutlineButton(btnBarcodeRoi, UiAccent, UiAccent, UiSurface);
+			StyleIndustrialOutlineButton(btnDate, UiAccentGlow, UiText, UiDeep);
+			StyleIndustrialOutlineButton(btnBarcode, UiAccentGlow, UiText, UiDeep);
+			StyleIndustrialOutlineButton(btnLogReset, UiAccentGlow, UiText, UiDeep);
 
-			menuStrip1.BackColor = Color.FromArgb(0x35, 0x35, 0x35);
-			menuStrip1.ForeColor = Color.White;
+			txtDate.BackColor = UiDeep;
+			txtDate.ForeColor = UiText;
+			txtDate.BorderStyle = BorderStyle.FixedSingle;
+			txtBarcode.BackColor = UiDeep;
+			txtBarcode.ForeColor = UiText;
+			txtBarcode.BorderStyle = BorderStyle.FixedSingle;
+
+			menuStrip1.BackColor = UiDeep;
+			menuStrip1.ForeColor = UiText;
+			menuStrip1.RenderMode = ToolStripRenderMode.System;
 			foreach (ToolStripItem item in menuStrip1.Items)
 				ApplyMenuItemColors(item);
 
-			lblDebug.ForeColor = Color.Silver;
-			lblDebug.BackColor = appBack;
+			lblDebug.ForeColor = UiMuted;
+			lblDebug.BackColor = UiBg;
 		}
 
 		private static void ApplyMenuItemColors(ToolStripItem item)
 		{
-			item.ForeColor = Color.White;
-			item.BackColor = Color.FromArgb(0x35, 0x35, 0x35);
+			item.ForeColor = UiText;
+			item.BackColor = UiDeep;
 			if (item is ToolStripDropDownItem drop)
 			{
 				foreach (ToolStripItem sub in drop.DropDownItems)
@@ -332,14 +346,32 @@ namespace PackVisionApp.UI
 			}
 		}
 
-		private static void StyleFillButton(Button b, Color back, Color fore)
+		private static void StyleIndustrialOutlineButton(Button b, Color border, Color fore, Color back)
 		{
 			b.UseVisualStyleBackColor = false;
+			b.FlatStyle = FlatStyle.Flat;
+			b.FlatAppearance.BorderSize = 2;
+			b.FlatAppearance.BorderColor = border;
+			b.FlatAppearance.MouseOverBackColor = ControlPaint.Light(back, 0.12f);
+			b.FlatAppearance.MouseDownBackColor = ControlPaint.Light(back, 0.22f);
 			b.BackColor = back;
 			b.ForeColor = fore;
+			b.Cursor = Cursors.Hand;
+			b.Font = new Font("맑은 고딕", 9.75f, FontStyle.Bold, GraphicsUnit.Point);
+		}
+
+		private static void StyleIndustrialSolidButton(Button b, Color fill, Color fore, Color border)
+		{
+			b.UseVisualStyleBackColor = false;
 			b.FlatStyle = FlatStyle.Flat;
-			b.FlatAppearance.BorderSize = 0;
-			b.FlatAppearance.MouseOverBackColor = ControlPaint.Light(back, 0.2f);
+			b.FlatAppearance.BorderSize = 2;
+			b.FlatAppearance.BorderColor = border;
+			b.FlatAppearance.MouseOverBackColor = ControlPaint.Light(fill, 0.18f);
+			b.FlatAppearance.MouseDownBackColor = ControlPaint.Light(fill, 0.28f);
+			b.BackColor = fill;
+			b.ForeColor = fore;
+			b.Cursor = Cursors.Hand;
+			b.Font = new Font("맑은 고딕", 10f, FontStyle.Bold, GraphicsUnit.Point);
 		}
 
 		// ═══════════════════════════════════════
@@ -353,65 +385,61 @@ namespace PackVisionApp.UI
 			int menuH = menuStrip1.Height;
 			int topPanelH = 90;
 			int bottomPanelH = 230;
-			int statusPanelW = 250;
+			int statusPanelW = 272;
 
 			panel1.Left = margin;
 			panel1.Top = menuH + margin;
 			panel1.Width = formW - margin * 2;
 			panel1.Height = topPanelH;
 
-			// 오른쪽 고정: ROI → 검사 → STOP → RUN
-			int g = 10;
+			// 입력 행 먼저 계산 → 가동/정지/검사 버튼을 텍스트 행과 세로 중앙 정렬
+			int actionGap = 10;
 			int roiGap = 6;
-			int actionY = 13;
+			int innerG = 10;
+			int leftX = 11;
+			int rowY = 32;
 			int xRight = panel1.Width - margin;
 			int xRoi = xRight - btnBarcodeRoi.Width;
-			btnBarcodeRoi.Left = xRoi;
-			btnBarcodeRoi.Top = 8;
-			btnDateRoi.Left = xRoi;
-			btnDateRoi.Top = btnBarcodeRoi.Bottom + roiGap;
+			int maxBarRight = xRoi - actionGap - btnInspect.Width - actionGap - btnStop.Width - actionGap - btnRun.Width - actionGap;
 
-			int xInspect = xRoi - g - btnInspect.Width;
-			btnInspect.Left = xInspect;
-			btnInspect.Top = actionY;
-
-			int xStop = xInspect - g - btnStop.Width;
-			btnStop.Left = xStop;
-			btnStop.Top = actionY;
-
-			int xRun = xStop - g - btnRun.Width;
-			btnRun.Left = xRun;
-			btnRun.Top = actionY;
-
-			// 입력 행: RUN 왼쪽까지 Date/Barcode 텍스트 폭 분배
-			int innerG = 12;
-			int leftX = 11;
-			int rowY = 35;
 			int btnDW = btnDate.Width;
 			int btnBW = btnBarcode.Width;
-			int maxBarRight = xRun - margin;
-			int capacity = maxBarRight - leftX - btnDW - btnBW - innerG * 3;
-			capacity = Math.Max(200, capacity);
-			int dateW = Math.Max(100, Math.Min(380, capacity * 2 / 5));
-			int barW = Math.Max(100, capacity - dateW);
+			int fixedParts = leftX + btnDW + btnBW + innerG * 3;
+			int pairCapacity = maxBarRight - fixedParts;
+			int fieldW = Math.Max(100, pairCapacity / 2);
+			while (leftX + fieldW + innerG + btnDW + innerG + fieldW + innerG + btnBW > maxBarRight && fieldW > 72)
+				fieldW--;
 
-			txtDate.SetBounds(leftX, rowY, dateW, txtDate.Height);
-			btnDate.Left = txtDate.Right + innerG;
-			btnDate.Top = rowY;
+			label2.Left = leftX;
+			label2.Top = 4;
+
+			int txtH = txtDate.Height;
+			txtDate.SetBounds(leftX, rowY, fieldW, txtH);
+			btnDate.SetBounds(txtDate.Right + innerG, rowY, btnDW, txtH);
 
 			label1.Left = btnDate.Right + innerG;
-			label1.Top = 3;
+			label1.Top = 4;
 
-			txtBarcode.SetBounds(label1.Left, rowY, barW, txtBarcode.Height);
-			btnBarcode.Left = txtBarcode.Right + innerG;
-			btnBarcode.Top = rowY;
+			txtBarcode.SetBounds(label1.Left, rowY, fieldW, txtH);
+			btnBarcode.SetBounds(txtBarcode.Right + innerG, rowY, btnBW, txtH);
 
-			if (btnBarcode.Right > maxBarRight)
-			{
-				int over = btnBarcode.Right - maxBarRight;
-				txtBarcode.Width = Math.Max(80, txtBarcode.Width - over);
-				btnBarcode.Left = txtBarcode.Right + innerG;
-			}
+			int xRun = maxBarRight + actionGap;
+			btnRun.Left = xRun;
+			btnStop.Left = xRun + btnRun.Width + actionGap;
+			btnInspect.Left = btnStop.Left + btnStop.Width + actionGap;
+
+			int actionTop = rowY + (txtH - btnRun.Height) / 2;
+			if (actionTop < 6) actionTop = 6;
+			btnRun.Top = actionTop;
+			btnStop.Top = actionTop;
+			btnInspect.Top = actionTop;
+
+			int roiStackH = btnBarcodeRoi.Height + roiGap + btnDateRoi.Height;
+			int roiTop = Math.Max(6, rowY + (txtH - roiStackH) / 2);
+			btnBarcodeRoi.Left = xRoi;
+			btnBarcodeRoi.Top = roiTop;
+			btnDateRoi.Left = xRoi;
+			btnDateRoi.Top = roiTop + btnBarcodeRoi.Height + roiGap;
 
 			int imagePanelTop = panel1.Bottom + margin;
 			int imagePanelH = formH - imagePanelTop - bottomPanelH - margin * 2;
@@ -421,13 +449,14 @@ namespace PackVisionApp.UI
 			_imagePanel.Width = formW - margin * 2;
 			_imagePanel.Height = Math.Max(100, imagePanelH);
 
-			pictureBoxFrame.Left = 0;
-			pictureBoxFrame.Top = 0;
-			pictureBoxFrame.Width = _imagePanel.Width;
-			pictureBoxFrame.Height = _imagePanel.Height;
+			int f = ImagePanelFramePx;
+			imageViewCtrl.Left = f;
+			imageViewCtrl.Top = f;
+			imageViewCtrl.Width = Math.Max(1, _imagePanel.Width - f * 2);
+			imageViewCtrl.Height = Math.Max(1, _imagePanel.Height - f * 2);
 
-			lblResult.Left = 20;
-			lblResult.Top = 20;
+			lblResult.Left = 20 + f;
+			lblResult.Top = 20 + f;
 
 			panelBottom.Left = margin;
 			panelBottom.Top = _imagePanel.Bottom + margin;
@@ -448,6 +477,18 @@ namespace PackVisionApp.UI
 			lvLogs.Top = 0;
 			lvLogs.Width = panelLog.Width - margin;
 			lvLogs.Height = panelLog.Height - margin;
+
+			// 하단 상태 패널: 검사율 + 요약 + 로그 리셋
+			int psPad = 10;
+			int sy = psPad;
+			lblInspectionRate.Location = new System.Drawing.Point(psPad, sy);
+			lblInspectionSummary.Left = lblInspectionRate.Right + 12;
+			lblInspectionSummary.Top = sy + 4;
+			sy = Math.Max(lblInspectionRate.Bottom, lblInspectionSummary.Bottom) + 12;
+			lblInspectionCount.Location = new System.Drawing.Point(psPad, sy);
+			sy = lblInspectionCount.Bottom + 14;
+			int btnResetH = 40;
+			btnLogReset.SetBounds(psPad, sy, Math.Max(120, panelStatus.Width - psPad * 2), btnResetH);
 
 			lblDebug.Left = margin;
 			lblDebug.Top = Math.Min(formH - lblDebug.Height - margin, panelBottom.Bottom + 4);
@@ -470,11 +511,11 @@ namespace PackVisionApp.UI
 			lvLogs.View = View.Details;
 			lvLogs.FullRowSelect = true;
 			lvLogs.GridLines = true;
-			lvLogs.Columns.Add("Result", 80);
-			lvLogs.Columns.Add("Time", 100);
-			lvLogs.Columns.Add("Reason", 100);
-			lvLogs.Columns.Add("Date", 120);
-			lvLogs.Columns.Add("Barcode", 180);
+			lvLogs.Columns.Add("결과", 80);
+			lvLogs.Columns.Add("시각", 100);
+			lvLogs.Columns.Add("사유", 100);
+			lvLogs.Columns.Add("날짜", 120);
+			lvLogs.Columns.Add("바코드", 180);
 		}
 
 		// ═══════════════════════════════════════
@@ -497,9 +538,7 @@ namespace PackVisionApp.UI
 				_latestFrame = (Bitmap)bmp.Clone();
 			}
 
-			Image oldImage = pictureBoxFrame.Image;
-			pictureBoxFrame.Image = (Bitmap)bmp.Clone();
-			oldImage?.Dispose();
+			imageViewCtrl.LoadBitmap((Bitmap)bmp.Clone());
 
 			// 티칭 ROI 고정 모드에서는 CSRT 트래킹/ROI 갱신을 스킵해서
 			// 사용자가 잡아둔 ROI가 프레임마다 움직이지 않게 한다.
@@ -520,7 +559,7 @@ namespace PackVisionApp.UI
 						this.BeginInvoke(new Action(() =>
 						{
 							UpdateTrackedRois();
-							pictureBoxFrame.Invalidate();
+							imageViewCtrl.Invalidate();
 						}));
 					});
 				}
@@ -530,8 +569,7 @@ namespace PackVisionApp.UI
 				}
 			}
 
-			TryAutoInspection();
-			pictureBoxFrame.Invalidate();
+			imageViewCtrl.Invalidate();
 			bmp.Dispose();
 		}
 
@@ -579,7 +617,7 @@ namespace PackVisionApp.UI
 				int w = Math.Abs(_startPoint.X - e.X);
 				int h = Math.Abs(_startPoint.Y - e.Y);
 				_selectionRect = new Rectangle(x, y, w, h);
-				pictureBoxFrame.Invalidate();
+				imageViewCtrl.Invalidate();
 			}
 		}
 
@@ -590,7 +628,7 @@ namespace PackVisionApp.UI
 			_isSelecting = false;
 
 			if (_selectionRect.Width > 10 && _selectionRect.Height > 10
-				&& pictureBoxFrame.Image != null)
+				&& imageViewCtrl.HasImage)
 			{
 				Rectangle imageRect = ScreenRectToImageRect(_selectionRect);
 
@@ -615,9 +653,10 @@ namespace PackVisionApp.UI
 						_freezeTaughtRois = false;
 						_packageImageRect = imageRect;
 
-						using (Bitmap currentImg = (Bitmap)pictureBoxFrame.Image.Clone())
+						using (Bitmap? currentImg = imageViewCtrl.CloneDisplayBitmap())
 						{
-							_packageTracker.SetTarget(currentImg, imageRect);
+							if (currentImg != null)
+								_packageTracker.SetTarget(currentImg, imageRect);
 						}
 					}
 
@@ -632,6 +671,9 @@ namespace PackVisionApp.UI
 
 						// 3개 ROI 티칭이 끝났으므로, 이후 프레임에서는 해당 ROI를 고정한다.
 						_freezeTaughtRois = true;
+
+						// ROI가 모두 잡히면 검사 버튼 없이도 연속 검사 자동 시작(카메라가 RUN 중일 때)
+						TryStartContinuousInspect(showErrorDialogs: false, requirePreviewImage: false);
 					}
 
 					_packageScreenRect = ImageRectToScreenRect(_packageImageRect);
@@ -641,7 +683,7 @@ namespace PackVisionApp.UI
 			}
 
 			_selectionRect = Rectangle.Empty;
-			pictureBoxFrame.Invalidate();
+			imageViewCtrl.Invalidate();
 		}
 
 		private void pbCamera_Paint(object sender, PaintEventArgs e)
@@ -675,52 +717,14 @@ namespace PackVisionApp.UI
 
 		private Rectangle ScreenRectToImageRect(Rectangle screenRect)
 		{
-			if (pictureBoxFrame.Image == null) return Rectangle.Empty;
-			if (!GetZoomTransform(out float scale, out float offsetX, out float offsetY))
-				return Rectangle.Empty;
-
-			float left = (screenRect.Left - offsetX) / scale;
-			float top = (screenRect.Top - offsetY) / scale;
-			float right = (screenRect.Right - offsetX) / scale;
-			float bottom = (screenRect.Bottom - offsetY) / scale;
-
-			float x1 = Math.Min(left, right);
-			float y1 = Math.Min(top, bottom);
-			float x2 = Math.Max(left, right);
-			float y2 = Math.Max(top, bottom);
-
-			x1 = Math.Max(0, x1);
-			y1 = Math.Max(0, y1);
-			x2 = Math.Min(pictureBoxFrame.Image.Width, x2);
-			y2 = Math.Min(pictureBoxFrame.Image.Height, y2);
-
-			int x = (int)Math.Round(x1);
-			int y = (int)Math.Round(y1);
-			int w = (int)Math.Round(x2 - x1);
-			int h = (int)Math.Round(y2 - y1);
-
-			if (w <= 0 || h <= 0)
-				return Rectangle.Empty;
-
-			return new Rectangle(x, y, w, h);
+			if (!imageViewCtrl.HasImage) return Rectangle.Empty;
+			return imageViewCtrl.ClientRectToImageRect(screenRect);
 		}
 
 		private Rectangle ImageRectToScreenRect(Rectangle imageRect)
 		{
-			if (pictureBoxFrame.Image == null) return Rectangle.Empty;
-			if (!GetZoomTransform(out float scale, out float offsetX, out float offsetY))
-				return Rectangle.Empty;
-
-			float x = imageRect.X * scale + offsetX;
-			float y = imageRect.Y * scale + offsetY;
-			float w = imageRect.Width * scale;
-			float h = imageRect.Height * scale;
-
-			return new Rectangle(
-				(int)Math.Round(x),
-				(int)Math.Round(y),
-				(int)Math.Round(w),
-				(int)Math.Round(h));
+			if (!imageViewCtrl.HasImage) return Rectangle.Empty;
+			return imageViewCtrl.ImageRectToClientRect(imageRect);
 		}
 
 		private void UpdateTrackedRois()
@@ -729,15 +733,15 @@ namespace PackVisionApp.UI
 			if (_freezeTaughtRois) return;
 
 			_packageImageRect = ClampToFrame(_packageTracker.GetPackageRect(),
-				pictureBoxFrame.Image?.Width ?? 0,
-				pictureBoxFrame.Image?.Height ?? 0);
+				imageViewCtrl.ImagePixelWidth,
+				imageViewCtrl.ImagePixelHeight);
 
 			if (_inspectionMgr.DateRatioRect != RectangleF.Empty)
 			{
 				Rectangle nextDate = ClampToFrame(
 					_inspectionMgr.GetDateRect(_packageImageRect),
-					pictureBoxFrame.Image?.Width ?? 0,
-					pictureBoxFrame.Image?.Height ?? 0);
+					imageViewCtrl.ImagePixelWidth,
+					imageViewCtrl.ImagePixelHeight);
 				_dateImageRect = _hasPrevTrackedRects
 					? SmoothRect(_prevDateImageRect, nextDate, 0.35f)
 					: nextDate;
@@ -747,8 +751,8 @@ namespace PackVisionApp.UI
 			{
 				Rectangle nextBarcode = ClampToFrame(
 					_inspectionMgr.GetBarcodeRect(_packageImageRect),
-					pictureBoxFrame.Image?.Width ?? 0,
-					pictureBoxFrame.Image?.Height ?? 0);
+					imageViewCtrl.ImagePixelWidth,
+					imageViewCtrl.ImagePixelHeight);
 				_barcodeImageRect = _hasPrevTrackedRects
 					? SmoothRect(_prevBarcodeImageRect, nextBarcode, 0.35f)
 					: nextBarcode;
@@ -769,30 +773,43 @@ namespace PackVisionApp.UI
 		}
 
 		// ═══════════════════════════════════════
-		// 자동 검사
+		// 자동 검사 — InspectStage: Transfer 완료 → 동기 검사(워커) → UI Invoke (촬영↔검사 싱크)
 		// ═══════════════════════════════════════
-		private void TryAutoInspection()
+		private void ExecuteInspectFromGrab(Bitmap currentFrame)
 		{
-			if (!_isAutoInspecting) return;
-			if (string.IsNullOrWhiteSpace(_expectedDate) ||
-				string.IsNullOrWhiteSpace(_expectedBarcode)) return;
-			if (!_packageTracker.IsTracking) return;
-			if (!_packageTracker.IsDateRoiSet || !_packageTracker.IsBarcodeRoiSet) return;
-			if (DateTime.Now - _lastInspectionTime < _inspectionInterval) return;
-			if (Interlocked.CompareExchange(ref _isInspectionBusy, 1, 0) != 0) return;
-
-			Bitmap currentFrame;
-
-			lock (_frameLock)
+			if (currentFrame == null)
 			{
-				if (_latestFrame == null)
-				{
-					Interlocked.Exchange(ref _isInspectionBusy, 0);
-					return;
-				}
-
-				currentFrame = (Bitmap)_latestFrame.Clone();
+				InspectFlowLog.Write("INSPECT_SKIP", "null frame");
+				return;
 			}
+
+			if (!_isAutoInspecting)
+			{
+				InspectFlowLog.Write("INSPECT_SKIP", "_isAutoInspecting=false");
+				return;
+			}
+
+			if (string.IsNullOrWhiteSpace(_expectedDate) ||
+				string.IsNullOrWhiteSpace(_expectedBarcode))
+			{
+				InspectFlowLog.Write("INSPECT_SKIP", "expected date/barcode empty");
+				return;
+			}
+
+			if (!_packageTracker.IsTracking)
+			{
+				InspectFlowLog.Write("INSPECT_SKIP", "IsTracking=false");
+				return;
+			}
+
+			if (!_packageTracker.IsDateRoiSet || !_packageTracker.IsBarcodeRoiSet)
+			{
+				InspectFlowLog.Write("INSPECT_SKIP", "date or barcode ROI not set on tracker");
+				return;
+			}
+
+			try
+			{
 
 			Rectangle dateRectForRead = _dateImageRect;
 			Rectangle barcodeRectForRead = _barcodeImageRect;
@@ -803,9 +820,6 @@ namespace PackVisionApp.UI
 			dateRectForRead = ClampToFrame(dateRectForRead, currentFrame.Width, currentFrame.Height);
 			barcodeRectForRead = ClampToFrame(barcodeRectForRead, currentFrame.Width, currentFrame.Height);
 
-			// 사용자가 ROI를 대충 잡아도 OCR 실패가 줄도록 read/draw ROI를 약간 확장
-			// 단, 날짜는 "위" 쪽을 더 크게 확장하면 원치 않는 영역까지 잡히므로(사용자 불만),
-			// 위쪽(top) 확장은 최소화하고 아래(bottom) 확장은 조금만 주도록 비대칭 확장을 적용.
 			int barcodeMarginX = Math.Max(8, (int)Math.Round(barcodeRectForRead.Width * 0.05));
 			int barcodeMarginY = Math.Max(8, (int)Math.Round(barcodeRectForRead.Height * 0.05));
 
@@ -844,105 +858,141 @@ namespace PackVisionApp.UI
 				barcodeMarginX,
 				barcodeMarginY);
 
-			_lastInspectionTime = DateTime.Now;
+			BarcodeResult barcodeResult;
+			DateResult dateResult;
+			List<Rectangle> barcodeBlobRects;
+			List<Rectangle> dateBlobRects;
+			string stableBarcodeValue = string.Empty;
+			string stableDateValue = string.Empty;
+			string barcodeCandidateValue = string.Empty;
+			string dateCandidateValue = string.Empty;
 
-			Task.Run(() =>
+			barcodeResult = _barcodeReader.ReadBarcode(currentFrame, barcodeRectForRead);
+			dateResult = _dateReader.ReadDate(currentFrame, dateRectForRead);
+			barcodeCandidateValue = barcodeResult.Success ? barcodeResult.Value : string.Empty;
+			dateCandidateValue = dateResult.Success ? dateResult.Value : string.Empty;
+
+			UpdateStableOcrValues(
+				barcodeCandidateValue,
+				dateCandidateValue,
+				out stableBarcodeValue,
+				out stableDateValue);
+
+			if (barcodeResult.Success && !string.IsNullOrWhiteSpace(barcodeCandidateValue))
+				_barcodeReadVote.Add(GetBarcodeNorm(barcodeCandidateValue), barcodeCandidateValue);
+			if (dateResult.Success && !string.IsNullOrWhiteSpace(dateCandidateValue))
+				_dateReadVote.Add(GetDateNorm(dateCandidateValue), dateCandidateValue);
+
+			bool useBarcodeBlobs =
+				barcodeResult.Success &&
+				GetBarcodeNorm(barcodeCandidateValue) == GetBarcodeNorm(stableBarcodeValue);
+
+			bool useDateBlobs =
+				dateResult.Success &&
+				GetDateNorm(dateCandidateValue) == GetDateNorm(stableDateValue);
+
+			barcodeBlobRects = useBarcodeBlobs
+				? GetBarcodeBlobRects(currentFrame, barcodeRectForDraw)
+				: new List<Rectangle>();
+
+			dateBlobRects = useDateBlobs
+				? GetDateBlobRects(currentFrame, dateRectForDraw)
+				: new List<Rectangle>();
+
+			// 판정용 문자열: ① 다수결 → ② stable → ③ 이번 프레임 (성공한 읽기만 버퍼에 쌓임)
+			string judgeBarcode = barcodeCandidateValue;
+			if (_barcodeReadVote.TryGetMajorityRaw(out string majBarcode))
+				judgeBarcode = majBarcode;
+			else if (!string.IsNullOrEmpty(stableBarcodeValue))
+				judgeBarcode = stableBarcodeValue;
+
+			string judgeDate = dateCandidateValue;
+			if (_dateReadVote.TryGetMajorityRaw(out string majDate))
+				judgeDate = majDate;
+			else if (!string.IsNullOrEmpty(stableDateValue))
+				judgeDate = stableDateValue;
+
+			// 이번 촬영에서 디코드가 실패했으면, 예전 다수결 값으로는 OK 금지 (빈 컨베이어인데 OK 나오는 버그 방지)
+			string barcodeForVerdict = barcodeResult.Success ? judgeBarcode : string.Empty;
+			string dateForVerdict = dateResult.Success ? judgeDate : string.Empty;
+
+			string logLine = $"[{DateTime.Now:HH:mm:ss.fff}] " +
+							 $"DateROI:{dateRectForRead} | BarcodeROI:{barcodeRectForRead} | " +
+				$"바코드:{barcodeResult.Success}/{barcodeCandidateValue}/{barcodeResult.FailReason} | " +
+				$"날짜:{dateResult.Success}/{dateCandidateValue}/{dateResult.FailReason} | " +
+				$"stableB:{stableBarcodeValue} | stableD:{stableDateValue} | judgeB:{judgeBarcode} | judgeD:{judgeDate} | " +
+				$"verdictB:{barcodeForVerdict} | verdictD:{dateForVerdict}";
+
+			System.IO.File.AppendAllText(
+				System.IO.Path.Combine(
+					Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+					"debug_log.txt"),
+				logLine + "\n");
+
+			string debugMsg =
+				$"바코드:{barcodeResult.Success}({barcodeCandidateValue}) | 판정에씀:{barcodeForVerdict} | 다수결:{judgeBarcode} | " +
+				$"날짜:{dateResult.Success}({dateCandidateValue}) | 판정에씀:{dateForVerdict} | 다수결:{judgeDate} | " +
+				$"voteB:[{_barcodeReadVote.FormatKeysForDebug()}] voteD:[{_dateReadVote.FormatKeysForDebug()}]";
+
+			InspectionResult result = _inspectionMgr.Inspect(
+				_expectedBarcode, barcodeForVerdict,
+				_expectedDate, dateForVerdict,
+				true);
+
+			InspectFlowLog.Write("INSPECT_VERDICT",
+				$"overall={(result.IsOverallOk ? "OK" : "NOK")} bcOk={result.IsBarcodeOk} dtOk={result.IsDateOk} " +
+				$"jB={barcodeForVerdict} jD={dateForVerdict} expB={_expectedBarcode} expD={_expectedDate} " +
+				$"readOk_b={barcodeResult.Success} readOk_d={dateResult.Success}");
+
+			if (IsDisposed)
+				return;
+
+			void ApplyUi()
 			{
-				try
+				lblDebug.Text =
+					debugMsg +
+					$" | 처리프레임:{_inspectStage.AcceptedForInspectCount} 드롭(바쁨):{_inspectStage.DroppedWhileBusyCount}";
+
+				UpdateLiveOverlay(
+					barcodeRectForDraw,
+					dateRectForDraw,
+					barcodeForVerdict,
+					dateForVerdict,
+					result.IsBarcodeOk,
+					result.IsDateOk,
+					barcodeBlobRects,
+					dateBlobRects);
+
+				lock (_frameLock)
 				{
-					BarcodeResult barcodeResult;
-					DateResult dateResult;
-					List<Rectangle> barcodeBlobRects;
-					List<Rectangle> dateBlobRects;
-					string stableBarcodeValue = string.Empty;
-					string stableDateValue = string.Empty;
-					string barcodeCandidateValue = string.Empty;
-					string dateCandidateValue = string.Empty;
-
-					using (currentFrame)
-					{
-						barcodeResult = _barcodeReader.ReadBarcode(currentFrame, barcodeRectForRead);
-						dateResult = _dateReader.ReadDate(currentFrame, dateRectForRead);
-						barcodeCandidateValue = barcodeResult.Success ? barcodeResult.Value : string.Empty;
-						dateCandidateValue = dateResult.Success ? dateResult.Value : string.Empty;
-
-						// OCR 값 안정화 (프레임 간 흔들림 제거)
-						UpdateStableOcrValues(
-							barcodeCandidateValue,
-							dateCandidateValue,
-							out stableBarcodeValue,
-							out stableDateValue);
-
-						// 화면에는 "안정화된 값과 동일한 후보"에서만 blob union을 그려서
-						// (숫자가 바뀌는 동안) blob 오버레이가 흔들리는 것을 줄임.
-						bool useBarcodeBlobs =
-							barcodeResult.Success &&
-							GetBarcodeNorm(barcodeCandidateValue) == GetBarcodeNorm(stableBarcodeValue);
-
-						bool useDateBlobs =
-							dateResult.Success &&
-							GetDateNorm(dateCandidateValue) == GetDateNorm(stableDateValue);
-
-						barcodeBlobRects = useBarcodeBlobs
-							? GetBarcodeBlobRects(currentFrame, barcodeRectForDraw)
-							: new List<Rectangle>();
-
-						dateBlobRects = useDateBlobs
-							? GetDateBlobRects(currentFrame, dateRectForDraw)
-							: new List<Rectangle>();
-					}
-
-					string actualBarcode = stableBarcodeValue;
-					string actualDate = stableDateValue;
-
-					string logLine = $"[{DateTime.Now:HH:mm:ss.fff}] " +
-									 $"DateROI:{dateRectForRead} | BarcodeROI:{barcodeRectForRead} | " +
-						$"바코드:{barcodeResult.Success}/{barcodeCandidateValue}/{barcodeResult.FailReason} | " +
-						$"날짜:{dateResult.Success}/{dateCandidateValue}/{dateResult.FailReason} | " +
-						$"stableBarcode:{actualBarcode} | stableDate:{actualDate}";
-
-					System.IO.File.AppendAllText(
-						System.IO.Path.Combine(
-							Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-							"debug_log.txt"),
-						logLine + "\n");
-
-					string debugMsg = $"바코드:{barcodeResult.Success}({barcodeCandidateValue}) | stable:{actualBarcode} | 날짜:{dateResult.Success}({dateCandidateValue}) | stable:{actualDate}";
-
-					InspectionResult result = _inspectionMgr.Inspect(
-						_expectedBarcode, actualBarcode,
-						_expectedDate, actualDate,
-						true);
-
-					this.BeginInvoke(new Action(() =>
-					{
-						lblDebug.Text = debugMsg;
-
-						UpdateLiveOverlay(
-							barcodeRectForDraw,
-							dateRectForDraw,
-							actualBarcode,
-							actualDate,
-							result.IsBarcodeOk,
-							result.IsDateOk,
-							barcodeBlobRects,
-							dateBlobRects);
-
-						pictureBoxFrame.Invalidate();
-
-						ApplyInspectionResult(result);
-					}));
+					_latestFrame?.Dispose();
+					_latestFrame = (Bitmap)currentFrame.Clone();
 				}
-				catch (Exception ex)
-				{
-					this.BeginInvoke(new Action(() =>
-						lblDebug.Text = "검사 오류: " + ex.Message));
-				}
-				finally
-				{
-					Interlocked.Exchange(ref _isInspectionBusy, 0);
-				}
-			});
+
+				imageViewCtrl.LoadBitmap((Bitmap)currentFrame.Clone());
+
+				imageViewCtrl.Invalidate();
+
+				RecordInspectionCycle(result);
+				UpdateVerdictLabelWithHysteresis(result);
+				InspectFlowLog.Write("UI_APPLY_DONE", "RecordInspectionCycle+overlay");
+			}
+
+			InspectFlowLog.Write("UI_INVOKE", InvokeRequired ? "Invoke(ApplyUi)" : "ApplyUi direct");
+			if (InvokeRequired)
+				Invoke(ApplyUi);
+			else
+				ApplyUi();
+			}
+			catch (Exception ex)
+			{
+				if (IsDisposed) return;
+				void SetErr() => lblDebug.Text = "검사 오류: " + ex.Message;
+				if (InvokeRequired)
+					Invoke(SetErr);
+				else
+					SetErr();
+			}
 		}
 
 		// ═══════════════════════════════════════
@@ -950,29 +1000,7 @@ namespace PackVisionApp.UI
 		// ═══════════════════════════════════════
 		private bool GetZoomTransform(out float scale, out float offsetX, out float offsetY)
 		{
-			scale = 1f;
-			offsetX = 0f;
-			offsetY = 0f;
-
-			if (pictureBoxFrame.Image == null) return false;
-
-			float imgW = pictureBoxFrame.Image.Width;
-			float imgH = pictureBoxFrame.Image.Height;
-			float boxW = pictureBoxFrame.ClientSize.Width;
-			float boxH = pictureBoxFrame.ClientSize.Height;
-
-			if (imgW <= 0 || imgH <= 0 || boxW <= 0 || boxH <= 0)
-				return false;
-
-			scale = Math.Min(boxW / imgW, boxH / imgH);
-
-			float drawW = imgW * scale;
-			float drawH = imgH * scale;
-
-			offsetX = (boxW - drawW) / 2f;
-			offsetY = (boxH - drawH) / 2f;
-
-			return true;
+			return imageViewCtrl.TryGetZoomTransform(out scale, out offsetX, out offsetY);
 		}
 
 		private Rectangle ClampToFrame(Rectangle roi, int frameWidth, int frameHeight)
@@ -1039,7 +1067,8 @@ namespace PackVisionApp.UI
 			return ClampToFrame(expanded, frameWidth, frameHeight);
 		}
 
-		private void ApplyInspectionResult(InspectionResult result)
+		/// <summary>검사 1회마다 호출: 건수·리스트·CSV는 항상 반영 (히스테리시스 없음).</summary>
+		private void RecordInspectionCycle(InspectionResult result)
 		{
 			if (result == null) return;
 
@@ -1048,20 +1077,73 @@ namespace PackVisionApp.UI
 			if (result.IsOverallOk)
 			{
 				_okInspectionCount++;
-				lblResult.Text = "OK";
-				lblResult.ForeColor = Color.LimeGreen;
-				AddLogItem("OK", "-", result.ActualDate, result.ActualBarcode, Color.Green);
+				AddLogItem("OK", "-", result.ActualDate, result.ActualBarcode, UiAccentGlow);
 			}
 			else
 			{
-				lblResult.Text = "NOK";
-				lblResult.ForeColor = Color.Red;
 				AddLogItem("NOK", result.FailReasonText,
-					result.ActualDate, result.ActualBarcode, Color.Red);
+					result.ActualDate, result.ActualBarcode, UiDanger);
 			}
 
 			_csvLogManager.SaveLog(result);
 			UpdateInspectionRate();
+		}
+
+		private static void SetVerdictLabel(Label label, bool overallOk)
+		{
+			if (overallOk)
+			{
+				label.Text = "OK";
+				label.ForeColor = UiAccent;
+			}
+			else
+			{
+				label.Text = "NOK";
+				label.ForeColor = UiDanger;
+			}
+		}
+
+		private void ResetJudgementHysteresis()
+		{
+			_judgementHysteresisPrimed = false;
+			_verdictFlipStreak = 0;
+		}
+
+		/// <summary>상단 큰 OK/NOK만 연속 프레임 일치 시 변경 (로그·건수와 별개).</summary>
+		private void UpdateVerdictLabelWithHysteresis(InspectionResult result)
+		{
+			if (result == null) return;
+
+			if (!_judgementHysteresisPrimed)
+			{
+				_judgementHysteresisPrimed = true;
+				_lastAppliedOverallOk = result.IsOverallOk;
+				_verdictFlipStreak = 1;
+				_verdictFlipTowardOk = result.IsOverallOk;
+				SetVerdictLabel(lblResult, result.IsOverallOk);
+				return;
+			}
+
+			if (result.IsOverallOk == _lastAppliedOverallOk)
+			{
+				_verdictFlipStreak = 0;
+				return;
+			}
+
+			if (result.IsOverallOk == _verdictFlipTowardOk)
+				_verdictFlipStreak++;
+			else
+			{
+				_verdictFlipTowardOk = result.IsOverallOk;
+				_verdictFlipStreak = 1;
+			}
+
+			if (_verdictFlipStreak < JudgementHysteresisFrames)
+				return;
+
+			_lastAppliedOverallOk = result.IsOverallOk;
+			_verdictFlipStreak = 0;
+			SetVerdictLabel(lblResult, result.IsOverallOk);
 		}
 
 		private string NormalizeBarcodeForOverlay(string raw)
@@ -1284,7 +1366,7 @@ namespace PackVisionApp.UI
 
 		private void DrawLiveOverlayOnScreen(Graphics g)
 		{
-			if (pictureBoxFrame.Image == null)
+			if (!imageViewCtrl.HasImage)
 				return;
 
 			Rectangle barcodeRect;
@@ -1366,6 +1448,85 @@ namespace PackVisionApp.UI
 		}
 
 		// ═══════════════════════════════════════
+		// 연속 검사 시작(조건 만족 시). 프레임마다 InspectStage → 이전 검사 종료 후 다음 프레임 검사.
+		// ═══════════════════════════════════════
+		private bool TryStartContinuousInspect(bool showErrorDialogs, bool requirePreviewImage)
+		{
+			_expectedDate = txtDate.Text.Trim();
+			_expectedBarcode = txtBarcode.Text.Trim();
+
+			if (string.IsNullOrWhiteSpace(_expectedDate) ||
+				string.IsNullOrWhiteSpace(_expectedBarcode))
+			{
+				if (showErrorDialogs)
+					MessageBox.Show("먼저 기준 날짜와 기준 바코드를 입력하세요.", "연속 검사");
+				return false;
+			}
+
+			if (!_cameraMgr.IsStreaming)
+			{
+				if (showErrorDialogs)
+					MessageBox.Show("먼저 카메라(RUN)를 실행하세요.", "연속 검사");
+				return false;
+			}
+
+			if (requirePreviewImage && !imageViewCtrl.HasImage)
+			{
+				if (showErrorDialogs)
+					MessageBox.Show("카메라 프레임이 들어올 때까지 잠시 후 다시 눌러 주세요.", "연속 검사");
+				return false;
+			}
+
+			if (_packageImageRect == Rectangle.Empty ||
+				_dateImageRect == Rectangle.Empty ||
+				_barcodeImageRect == Rectangle.Empty)
+			{
+				if (showErrorDialogs)
+					MessageBox.Show("포장지·날짜·바코드 ROI를 모두 지정하세요.", "연속 검사");
+				return false;
+			}
+
+			if (!_packageTracker.IsTracking ||
+				!_packageTracker.IsDateRoiSet ||
+				!_packageTracker.IsBarcodeRoiSet)
+			{
+				if (showErrorDialogs)
+					MessageBox.Show("포장지 ROI로 트래킹을 먼저 잡은 뒤 날짜/바코드 ROI를 지정하세요.", "연속 검사");
+				return false;
+			}
+
+			if (_inspectStage.IsInspectCycleActive)
+				return true;
+
+			_inspectionMgr.SetRoiRatios(
+				_packageImageRect, _dateImageRect, _barcodeImageRect);
+
+			lock (_ocrStabilityLock)
+			{
+				_stableBarcodeValue = string.Empty;
+				_stableDateValue = string.Empty;
+				_stableBarcodeNorm = string.Empty;
+				_stableDateNorm = string.Empty;
+
+				_candidateBarcodeNorm = string.Empty;
+				_candidateBarcodeValue = string.Empty;
+				_barcodeCandidateStableFrames = 0;
+
+				_candidateDateNorm = string.Empty;
+				_candidateDateValue = string.Empty;
+				_dateCandidateStableFrames = 0;
+			}
+
+			_barcodeReadVote.Clear();
+			_dateReadVote.Clear();
+
+			ResetJudgementHysteresis();
+			_isAutoInspecting = true;
+			_inspectStage.StartInspectCycle();
+			return true;
+		}
+
+		// ═══════════════════════════════════════
 		// RUN / STOP / 검사 버튼
 		// ═══════════════════════════════════════
 		private void btnRun_Click(object sender, EventArgs e)
@@ -1376,6 +1537,8 @@ namespace PackVisionApp.UI
 				btnRun.Enabled = false;
 				btnStop.Enabled = true;
 				_fpsSw.Restart();
+				// 이미 ROI·기준값이 있으면 검사 버튼 없이 연속 검사 시작
+				TryStartContinuousInspect(showErrorDialogs: false, requirePreviewImage: false);
 				return;
 			}
 			MessageBox.Show("카메라 연결 실패");
@@ -1385,6 +1548,12 @@ namespace PackVisionApp.UI
 		{
 			btnRun.Enabled = true;
 			btnStop.Enabled = false;
+
+			_isAutoInspecting = false;
+			_inspectStage.StopInspectCycle();
+			_barcodeReadVote.Clear();
+			_dateReadVote.Clear();
+			ResetJudgementHysteresis();
 
 			await _cameraMgr.StopCameraAsync();
 
@@ -1434,72 +1603,23 @@ namespace PackVisionApp.UI
 				_latestFrame = null;
 			}
 
-			Image oldImage = pictureBoxFrame.Image;
-			pictureBoxFrame.Image = null;
-			oldImage?.Dispose();
+			imageViewCtrl.ClearImage();
 
-			pictureBoxFrame.Invalidate();
+			imageViewCtrl.Invalidate();
 		}
 
 		private void btnInspect_Click(object sender, EventArgs e)
 		{
-			_expectedDate = txtDate.Text.Trim();
-			_expectedBarcode = txtBarcode.Text.Trim();
-
-			if (string.IsNullOrWhiteSpace(_expectedDate) ||
-				string.IsNullOrWhiteSpace(_expectedBarcode))
-			{
-				MessageBox.Show("먼저 기준 날짜와 기준 바코드를 입력하세요.");
+			bool wasAlreadyRunning = _inspectStage.IsInspectCycleActive;
+			if (!TryStartContinuousInspect(showErrorDialogs: true, requirePreviewImage: true))
 				return;
-			}
 
-			if (pictureBoxFrame.Image == null)
+			if (!wasAlreadyRunning)
 			{
-				MessageBox.Show("먼저 카메라를 실행하세요.");
-				return;
+				MessageBox.Show(
+					"연속 검사를 시작했습니다.\n검사가 끝날 때마다 다음 프레임으로 자동 이어집니다.\n중지: STOP",
+					"연속 검사");
 			}
-
-			if (_packageImageRect == Rectangle.Empty)
-			{
-				MessageBox.Show("먼저 포장지 ROI를 지정하세요.");
-				return;
-			}
-
-			if (_dateImageRect == Rectangle.Empty)
-			{
-				MessageBox.Show("먼저 날짜 ROI를 지정하세요.");
-				return;
-			}
-
-			if (_barcodeImageRect == Rectangle.Empty)
-			{
-				MessageBox.Show("먼저 바코드 ROI를 지정하세요.");
-				return;
-			}
-
-			_inspectionMgr.SetRoiRatios(
-				_packageImageRect, _dateImageRect, _barcodeImageRect);
-
-			// 검사 시작 시 stable/candidate 값을 초기화해서
-			// 이전 프레임/이전 검사 잔상이 남지 않게 함
-			lock (_ocrStabilityLock)
-			{
-				_stableBarcodeValue = string.Empty;
-				_stableDateValue = string.Empty;
-				_stableBarcodeNorm = string.Empty;
-				_stableDateNorm = string.Empty;
-
-				_candidateBarcodeNorm = string.Empty;
-				_candidateBarcodeValue = string.Empty;
-				_barcodeCandidateStableFrames = 0;
-
-				_candidateDateNorm = string.Empty;
-				_candidateDateValue = string.Empty;
-				_dateCandidateStableFrames = 0;
-			}
-
-			_isAutoInspecting = true;
-			MessageBox.Show("실시간 검사 시작");
 		}
 
 		// ═══════════════════════════════════════
@@ -1541,13 +1661,17 @@ namespace PackVisionApp.UI
 				{
 					try
 					{
-						Bitmap bmp = new Bitmap(ofd.FileName);
+						using Mat loaded = Cv2.ImRead(ofd.FileName, ImreadModes.Color);
+						if (loaded.Empty())
+						{
+							MessageBox.Show("이미지를 읽을 수 없습니다.");
+							return;
+						}
 
 						_originalFrame?.Dispose();
-						_originalFrame = new Bitmap(bmp);
+						_originalFrame = BitmapConverter.ToBitmap(loaded.Clone());
 
-						pictureBoxFrame.Image?.Dispose();
-						pictureBoxFrame.Image = bmp;
+						imageViewCtrl.LoadMat(loaded);
 					}
 					catch (Exception ex)
 					{
@@ -1559,11 +1683,13 @@ namespace PackVisionApp.UI
 
 		private void imageSaveToolStripMenuItem_Click(object sender, EventArgs e)
 		{
-			if (pictureBoxFrame.Image == null)
+			using (Bitmap? snap = imageViewCtrl.CloneDisplayBitmap())
 			{
-				MessageBox.Show("저장할 이미지가 없습니다.");
-				return;
-			}
+				if (snap == null)
+				{
+					MessageBox.Show("저장할 이미지가 없습니다.");
+					return;
+				}
 
 			using (SaveFileDialog sfd = new SaveFileDialog())
 			{
@@ -1576,13 +1702,14 @@ namespace PackVisionApp.UI
 				{
 					try
 					{
-						pictureBoxFrame.Image.Save(sfd.FileName);
+						snap.Save(sfd.FileName);
 						MessageBox.Show("이미지 저장 완료");
 					}
 					catch (Exception ex)
 					{
 						MessageBox.Show("이미지 저장 실패: " + ex.Message);
 					}
+				}
 				}
 			}
 		}
@@ -1594,7 +1721,7 @@ namespace PackVisionApp.UI
 		// ═══════════════════════════════════════
 		private void RunImageInspection()
 		{
-			if (pictureBoxFrame.Image == null || _originalFrame == null)
+			if (!imageViewCtrl.HasImage || _originalFrame == null)
 			{
 				MessageBox.Show("먼저 이미지를 불러오세요.");
 				return;
@@ -1621,25 +1748,28 @@ namespace PackVisionApp.UI
 			Bitmap workBitmap = new Bitmap(_originalFrame);
 			ProcessBarcodeOverlay(workBitmap, readBarcode, _expectedBarcode);
 
-			if (pictureBoxFrame.Image != null)
+			using (Bitmap? viewSnap = imageViewCtrl.CloneDisplayBitmap())
 			{
-				Bitmap current = new Bitmap(pictureBoxFrame.Image);
-				ProcessDateOverlay(current, readDate, _expectedDate);
+				if (viewSnap != null)
+				{
+					Bitmap current = new Bitmap(viewSnap);
+					ProcessDateOverlay(current, readDate, _expectedDate);
+				}
 			}
 
 			if (result.IsOverallOk)
 			{
 				_okInspectionCount++;
 				lblResult.Text = "OK";
-				lblResult.ForeColor = Color.LimeGreen;
-				AddLogItem("OK", "-", result.ActualDate, result.ActualBarcode, Color.Green);
+				lblResult.ForeColor = UiAccent;
+				AddLogItem("OK", "-", result.ActualDate, result.ActualBarcode, UiAccentGlow);
 			}
 			else
 			{
 				lblResult.Text = "NOK";
-				lblResult.ForeColor = Color.Red;
+				lblResult.ForeColor = UiDanger;
 				AddLogItem("NOK", result.FailReasonText,
-					result.ActualDate, result.ActualBarcode, Color.Red);
+					result.ActualDate, result.ActualBarcode, UiDanger);
 			}
 
 			_csvLogManager.SaveLog(result);
@@ -1705,9 +1835,7 @@ namespace PackVisionApp.UI
 						}
 					}
 
-					Image oldImage = pictureBoxFrame.Image;
-					pictureBoxFrame.Image = debugImage;
-					oldImage?.Dispose();
+					imageViewCtrl.LoadBitmap(debugImage);
 				}
 			}
 		}
@@ -1795,9 +1923,7 @@ namespace PackVisionApp.UI
 				}
 			}
 
-			Image old = pictureBoxFrame.Image;
-			pictureBoxFrame.Image = source;
-			old?.Dispose();
+			imageViewCtrl.LoadBitmap(source);
 		}
 
 		// ═══════════════════════════════════════
@@ -1824,6 +1950,30 @@ namespace PackVisionApp.UI
 			item.SubItems.Add(barcode);
 			item.ForeColor = color;
 			lvLogs.Items.Insert(0, item);
+		}
+
+		private void btnLogReset_Click(object sender, EventArgs e)
+		{
+			var rows = new List<string?[]>(lvLogs.Items.Count);
+			foreach (ListViewItem it in lvLogs.Items)
+			{
+				string t0 = it.Text ?? string.Empty;
+				string t1 = it.SubItems.Count > 1 ? it.SubItems[1].Text : string.Empty;
+				string t2 = it.SubItems.Count > 2 ? it.SubItems[2].Text : string.Empty;
+				string t3 = it.SubItems.Count > 3 ? it.SubItems[3].Text : string.Empty;
+				string t4 = it.SubItems.Count > 4 ? it.SubItems[4].Text : string.Empty;
+				rows.Add(new[] { t0, t1, t2, t3, t4 });
+			}
+
+			string? savedPath = _csvLogManager.SaveUiLogSnapshot(rows);
+			lvLogs.Items.Clear();
+
+			if (savedPath != null)
+				MessageBox.Show(this, $"로그를 저장했습니다.\n{savedPath}", "로그 리셋",
+					MessageBoxButtons.OK, MessageBoxIcon.Information);
+			else if (rows.Count == 0)
+				MessageBox.Show(this, "저장할 로그가 없습니다.", "로그 리셋",
+					MessageBoxButtons.OK, MessageBoxIcon.Information);
 		}
 	}
 }

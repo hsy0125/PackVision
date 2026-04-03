@@ -1,9 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using PackVisionApp.Models;
-using System;
-using System.IO;
 
 namespace PackVisionApp.Managers
 {
@@ -60,6 +60,29 @@ namespace PackVisionApp.Managers
 				Escape(result.ActualBarcode);
 
 			File.AppendAllText(filePath, line + Environment.NewLine, Encoding.UTF8);
+		}
+
+		/// <summary>화면 로그 리스트(한 세션)를 리셋 전에 별도 CSV로 저장합니다. 행은 화면 표시 순서(최신이 위) 그대로 저장합니다.</summary>
+		public string? SaveUiLogSnapshot(IReadOnlyList<string?[]> rows)
+		{
+			if (rows == null || rows.Count == 0)
+				return null;
+
+			string name = $"ui_session_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+			string filePath = Path.Combine(_folderPath, name);
+
+			var sb = new StringBuilder();
+			sb.AppendLine("Result,Time,Reason,Date,Barcode");
+			foreach (var cols in rows)
+			{
+				if (cols == null || cols.Length < 5)
+					continue;
+				sb.AppendLine(string.Join(",",
+					Enumerable.Range(0, 5).Select(i => Escape(cols[i] ?? string.Empty))));
+			}
+
+			File.WriteAllText(filePath, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+			return filePath;
 		}
 
 		private int GetExistingLogCount()

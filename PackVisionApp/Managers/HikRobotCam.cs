@@ -10,11 +10,18 @@ namespace PackVisionApp.Managers
     {
         private IDevice _device = null;
         private bool _isGrabbing = false;
+        private bool _singleFrameSoftwareTriggerMode = false;
 
-        // 이미지 버퍼 관련 (SDK에서 제공하는 버퍼 사용)
+        // 이미지 버퍼 관련 (Mono8: 1바이트/픽셀, 컬러 변환 후: BGR8 Packed = 3바이트/픽셀)
         public byte[] LatestImageBuffer { get; private set; }
         public int Width { get; private set; }
         public int Height { get; private set; }
+
+        /// <summary>마지막으로 채운 버퍼의 픽셀당 바이트 (1=그레이, 3=BGR 컬러).</summary>
+        public int BytesPerPixel { get; private set; } = 1;
+
+        /// <summary>연속 FreeRun이 아니라 소프트웨어 트리거(장당 1프레임) 모드인지.</summary>
+        public bool IsSingleFrameSoftwareTriggerMode => _singleFrameSoftwareTriggerMode;
 
         // 프레임 수신 시 알림 이벤트
         public event Action FrameGrabbed;
@@ -55,8 +62,9 @@ namespace PackVisionApp.Managers
                 return false;
             }
 
-            // 트리거 모드 Off (Continuous Grab)
-            _device.Parameters.SetEnumValue("TriggerMode", 0);
+            // 티칭/라이브: 연속(Trigger Off). 검사 구간에서만 소프트웨어 트리거로 전환.
+            _singleFrameSoftwareTriggerMode = false;
+            ApplyFreeRunContinuousGrab();
 
             // 이미지 콜백 등록
             _device.StreamGrabber.FrameGrabedEvent += OnFrameGrabbed;
@@ -64,23 +72,185 @@ namespace PackVisionApp.Managers
             // 스트리밍 시작
             ret = _device.StreamGrabber.StartGrabbing();
             _isGrabbing = (ret == MvError.MV_OK);
+            TryExpandStreamBuffers();
 
             UpdateResolution();
             return _isGrabbing;
         }
 
+        /// <summary>Live/ROI 티칭용: Trigger Off → 들어오는 프레임마다 콜백(동영상 스트림).</summary>
+        private void ApplyFreeRunContinuousGrab()
+        {
+            if (_device == null) return;
+            _device.Parameters.SetEnumValue("TriggerMode", 0);
+        }
+
+        /// <summary>검사용: Trigger On + Software → TriggerSoftware 명령당 이미지 1장.</summary>
+        public bool ApplySingleFrameSoftwareTriggerMode()
+        {
+            if (_device == null || !_isGrabbing)
+                return false;
+
+            try
+            {
+                _device.StreamGrabber.StopGrabbing();
+                _singleFrameSoftwareTriggerMode = true;
+
+                TrySetEnumByString("TriggerMode", "On");
+                TrySetEnumByString("TriggerSource", "Software");
+
+                int ret = _device.StreamGrabber.StartGrabbing();
+                _isGrabbing = (ret == MvError.MV_OK);
+                TryExpandStreamBuffers();
+                UpdateResolution();
+                return _isGrabbing;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("ApplySingleFrameSoftwareTriggerMode: " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>장치별 노드명이 다를 수 있어 무시해도 됨. 버퍼 부족 시 트리거 누락 완화.</summary>
+        private void TryExpandStreamBuffers()
+        {
+            if (_device == null) return;
+            try
+            {
+                _device.Parameters.SetIntValue("StreamBufferCount", 64);
+            }
+            catch
+            {
+                try { _device.Parameters.SetIntValue("StreamBufferNumber", 64); } catch { }
+            }
+        }
+
+        /// <summary>검사 종료 후 라이브 복구.</summary>
+        public bool ApplyFreeRunAndRestartGrab()
+        {
+            if (_device == null)
+                return false;
+
+            try
+            {
+                _device.StreamGrabber.StopGrabbing();
+                _singleFrameSoftwareTriggerMode = false;
+                ApplyFreeRunContinuousGrab();
+                int ret = _device.StreamGrabber.StartGrabbing();
+                _isGrabbing = (ret == MvError.MV_OK);
+                return _isGrabbing;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("ApplyFreeRunAndRestartGrab: " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>소프트웨어 트리거 1회 → 다음 수신 프레임이 1장 촬영분.</summary>
+        public bool SendSoftwareTrigger()
+        {
+            if (_device == null || !_isGrabbing || !_singleFrameSoftwareTriggerMode)
+                return false;
+
+            try
+            {
+                int ret = _device.Parameters.SetCommandValue("TriggerSoftware");
+                return ret == MvError.MV_OK;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("SendSoftwareTrigger: " + ex.Message);
+                return false;
+            }
+        }
+
+        private void TrySetEnumByString(string name, string value)
+        {
+            try
+            {
+                _device.Parameters.SetEnumValueByString(name, value);
+            }
+            catch (Exception)
+            {
+                if (string.Equals(name, "TriggerMode", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(value, "On", StringComparison.OrdinalIgnoreCase))
+                    _device.Parameters.SetEnumValue("TriggerMode", 1u);
+                else if (string.Equals(name, "TriggerMode", StringComparison.OrdinalIgnoreCase) &&
+                         string.Equals(value, "Off", StringComparison.OrdinalIgnoreCase))
+                    _device.Parameters.SetEnumValue("TriggerMode", 0u);
+                else if (string.Equals(name, "TriggerSource", StringComparison.OrdinalIgnoreCase) &&
+                         string.Equals(value, "Software", StringComparison.OrdinalIgnoreCase))
+                    _device.Parameters.SetEnumValue("TriggerSource", 7u);
+                else
+                    throw;
+            }
+        }
+
         private void OnFrameGrabbed(object sender, FrameGrabbedEventArgs e)
         {
-            // 실시간 이미지 데이터를 LatestImageBuffer에 복사
-            if (LatestImageBuffer == null || LatestImageBuffer.Length != (int)e.FrameOut.Image.ImageSize)
+            if (_device == null)
+                return;
+
+            IFrameOut frameOut = e.FrameOut;
+            IImage srcImage = frameOut.Image;
+
+            try
             {
-                LatestImageBuffer = new byte[e.FrameOut.Image.ImageSize];
+                if (srcImage.PixelType == MvGvspPixelType.PixelType_Gvsp_Mono8)
+                {
+                    int size = (int)srcImage.ImageSize;
+                    EnsureBuffer(size);
+                    Marshal.Copy(srcImage.PixelDataPtr, LatestImageBuffer, 0, size);
+                    BytesPerPixel = 1;
+                }
+                else
+                {
+                    IImage outImage = null;
+                    int conv = _device.PixelTypeConverter.ConvertPixelType(
+                        srcImage,
+                        out outImage,
+                        MvGvspPixelType.PixelType_Gvsp_BGR8_Packed);
+
+                    if (conv != MvError.MV_OK || outImage == null)
+                    {
+                        Console.WriteLine($"[HikRobotCam] PixelTypeConverter 실패: 0x{conv:X8}");
+                        return;
+                    }
+
+                    try
+                    {
+                        int size = (int)outImage.ImageSize;
+                        EnsureBuffer(size);
+                        Marshal.Copy(outImage.PixelDataPtr, LatestImageBuffer, 0, size);
+                        BytesPerPixel = 3;
+                    }
+                    finally
+                    {
+                        TryDisposeImage(outImage);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("[HikRobotCam] OnFrameGrabbed: " + ex.Message);
+                return;
             }
 
-            Marshal.Copy(e.FrameOut.Image.PixelDataPtr, LatestImageBuffer, 0, (int)e.FrameOut.Image.ImageSize);
-
-            // 이벤트 발생 -> CameraManager가 알 수 있게 함
             FrameGrabbed?.Invoke();
+        }
+
+        private void EnsureBuffer(int byteCount)
+        {
+            if (LatestImageBuffer == null || LatestImageBuffer.Length != byteCount)
+                LatestImageBuffer = new byte[byteCount];
+        }
+
+        private static void TryDisposeImage(IImage image)
+        {
+            if (image is IDisposable d)
+                d.Dispose();
         }
 
         private void UpdateResolution()

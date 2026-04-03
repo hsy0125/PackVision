@@ -1,4 +1,5 @@
-﻿using System.Drawing;
+﻿using System;
+using System.Drawing;
 using System.Linq;
 using PackVisionApp.Models;
 using PackVisionApp.Vision;
@@ -15,6 +16,10 @@ namespace PackVisionApp.Managers
 	/// </summary>
 	public class InspectionManager
 	{
+		// ── 판정 완화: 0이면 완전 일치만 OK. 1이면 편집거리 1 이하까지 OK (OCR 1글자 튐 허용).
+		private const int LooseBarcodeMaxEdits = 1;
+		private const int LooseDateMaxEdits = 1;
+
 		private readonly BarcodeReader _barcodeReader;
 		private readonly DateReader _dateReader;
 		private readonly RoiMapper _roiMapper;
@@ -127,10 +132,10 @@ namespace PackVisionApp.Managers
 			string actualDate = dateResult.Success ? dateResult.Value : string.Empty;
 
 			bool isBarcodeOk = barcodeResult.Success &&
-							   NormalizeBarcode(expectedBarcode) == NormalizeBarcode(actualBarcode);
+							   BarcodeMatches(expectedBarcode, actualBarcode);
 
 			bool isDateOk = dateResult.Success &&
-							NormalizeDate(expectedDate) == NormalizeDate(actualDate);
+							DateMatches(expectedDate, actualDate);
 
 			return BuildResult(expectedBarcode, actualBarcode,
 							   expectedDate, actualDate,
@@ -151,8 +156,8 @@ namespace PackVisionApp.Managers
 			string actualDate,
 			bool isPrintOk)
 		{
-			bool isBarcodeOk = NormalizeBarcode(expectedBarcode) == NormalizeBarcode(actualBarcode);
-			bool isDateOk = NormalizeDate(expectedDate) == NormalizeDate(actualDate);
+			bool isBarcodeOk = BarcodeMatches(expectedBarcode, actualBarcode);
+			bool isDateOk = DateMatches(expectedDate, actualDate);
 
 			return BuildResult(expectedBarcode, actualBarcode,
 							   expectedDate, actualDate,
@@ -199,6 +204,62 @@ namespace PackVisionApp.Managers
 		// ═══════════════════════════════════════════════════════
 		// 공통 — 정규화
 		// ═══════════════════════════════════════════════════════
+
+		private bool BarcodeMatches(string expected, string actual)
+		{
+			string e = NormalizeBarcode(expected);
+			string a = NormalizeBarcode(actual);
+			if (string.IsNullOrEmpty(a))
+				return false;
+			if (e == a)
+				return true;
+			// Max가 0이면 아래 조건은 절대 참이 안 됨 → 사실상 완전 일치만 OK
+			return Levenshtein(e, a) <= LooseBarcodeMaxEdits;
+		}
+
+		private bool DateMatches(string expected, string actual)
+		{
+			string e = NormalizeDate(expected);
+			string a = NormalizeDate(actual);
+			if (string.IsNullOrEmpty(a))
+				return false;
+			if (e == a)
+				return true;
+
+			string ed = new string(e.Where(char.IsDigit).ToArray());
+			string ad = new string(a.Where(char.IsDigit).ToArray());
+			if (ed.Length >= 6 && ad.Length >= 6)
+				return Levenshtein(ed, ad) <= LooseDateMaxEdits;
+
+			return Levenshtein(e, a) <= LooseDateMaxEdits;
+		}
+
+		/// <summary>편집 거리(삽입/삭제/치환 1회 = 1). CS 알고리즘 수업에서 나오는 표준 DP.</summary>
+		private static int Levenshtein(string s, string t)
+		{
+			if (string.IsNullOrEmpty(s)) return t?.Length ?? 0;
+			if (string.IsNullOrEmpty(t)) return s.Length;
+
+			int n = s.Length;
+			int m = t.Length;
+			var row = new int[m + 1];
+			for (int j = 0; j <= m; j++) row[j] = j;
+
+			for (int i = 1; i <= n; i++)
+			{
+				int prev = row[0];
+				row[0] = i;
+				for (int j = 1; j <= m; j++)
+				{
+					int tmp = row[j];
+					int cost = s[i - 1] == t[j - 1] ? 0 : 1;
+					row[j] = Math.Min(Math.Min(row[j] + 1, row[j - 1] + 1), prev + cost);
+					prev = tmp;
+				}
+			}
+
+			return row[m];
+		}
 
 		private string NormalizeBarcode(string raw)
 		{

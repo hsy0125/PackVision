@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Drawing;
 using System.IO;
+using System.Threading;
 
 
 namespace PackVisionApp.Managers
@@ -14,7 +15,20 @@ namespace PackVisionApp.Managers
 
         private HikRobotCam _camEngine; // 실제 카메라 엔진
         private bool _isStreaming = false;
+        public bool IsStreaming => _isStreaming;
         public event Action<Bitmap> FrameUpdated;
+
+        /// <summary>true이면 라이브(FrameUpdated) 대신 검사용 콜백으로만 프레임을 넘깁니다(검사 중 라이브 정지).</summary>
+        public bool UseInspectTransferPath { get; set; }
+
+        /// <summary>프레임 1장(클론). 수신 측에서 Dispose 해야 합니다.</summary>
+        public event Action<Bitmap>? InspectTransferCompleted;
+
+        /// <summary>
+        /// 검사 경로에서 비트맵 생성 실패·예외·구독자 예외 등으로 다음 트리거가 걸리지 않을 때.
+        /// InspectStage가 다음 TriggerSoftware를 다시 걸도록 합니다.
+        /// </summary>
+        public event Action? InspectPipelineStalled;
 
 
         
@@ -44,41 +58,144 @@ namespace PackVisionApp.Managers
             });
         }
 
+        /// <summary>검사 전용: 소프트웨어 트리거 모드(장당 1프레임). ROI 라이브는 연속 모드로 복구할 것.</summary>
+        public bool EnterInspectSingleCaptureMode()
+        {
+            return _camEngine != null && _camEngine.ApplySingleFrameSoftwareTriggerMode();
+        }
+
+        /// <summary>검사 종료 후 연속 라이브(FreeRun)로 복귀.</summary>
+        public void ExitInspectSingleCaptureMode()
+        {
+            _camEngine?.ApplyFreeRunAndRestartGrab();
+        }
+
+        /// <summary>다음 검사용 이미지 1장 촬영 요청(검사 완료 후 호출).</summary>
+        public bool FireSoftwareTriggerForNextFrame(int retries = 8, int delayMs = 5)
+        {
+            if (_camEngine == null) return false;
+            for (int i = 0; i < retries; i++)
+            {
+                if (_camEngine.SendSoftwareTrigger())
+                    return true;
+                Thread.Sleep(delayMs);
+            }
+            return false;
+        }
+
+        private void RaiseInspectPipelineStalled()
+        {
+            if (!UseInspectTransferPath || !_isStreaming)
+                return;
+            try
+            {
+                InspectPipelineStalled?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("InspectPipelineStalled: " + ex.Message);
+            }
+        }
+
         private void ProcessAndPublish()
         {
             // [수정] _isStreaming이 false라면 이미지를 변환하지 않고 바로 리턴합니다.
-            if (!_isStreaming || _camEngine.LatestImageBuffer == null) return;
+            if (!_isStreaming || _camEngine.LatestImageBuffer == null)
+                return;
 
             try
             {
-                Bitmap bmp = RawToBitmap(_camEngine.LatestImageBuffer, _camEngine.Width, _camEngine.Height);
+                Bitmap bmp = RawToBitmap(
+                    _camEngine.LatestImageBuffer,
+                    _camEngine.Width,
+                    _camEngine.Height,
+                    _camEngine.BytesPerPixel);
 
                 if (bmp == null)
+                {
+                    RaiseInspectPipelineStalled();
                     return;
+                }
+
+                if (UseInspectTransferPath && InspectTransferCompleted != null)
+                {
+                    Bitmap clone = (Bitmap)bmp.Clone();
+                    bmp.Dispose();
+                    try
+                    {
+                        InspectTransferCompleted.Invoke(clone);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("InspectTransferCompleted: " + ex.Message);
+                        try { clone.Dispose(); } catch { /* ignore */ }
+                        RaiseInspectPipelineStalled();
+                    }
+                    return;
+                }
 
                 FrameUpdated?.Invoke(bmp);
             }
             catch (Exception ex)
             {
                 Console.WriteLine("이미지 변환 중 오류: " + ex.Message);
+                RaiseInspectPipelineStalled();
             }
         }
 
-        private Bitmap RawToBitmap(byte[] data, int width, int height)
+        /// <summary>
+        /// bytesPerPixel 1: 그레이(8bpp). 3: 카메라에서 BGR8 Packed로 받은 컬러 → UI용 24bpp RGB 비트맵.
+        /// </summary>
+        private Bitmap RawToBitmap(byte[] data, int width, int height, int bytesPerPixel)
         {
-            // 데이터 크기 검증 (데이터가 부족하면 튕김 방지)
-            if (data.Length < width * height) return null;
+            if (data == null || width <= 0 || height <= 0)
+                return null;
 
-            Bitmap bmp = new Bitmap(width, height, PixelFormat.Format8bppIndexed);
-            ColorPalette cp = bmp.Palette;
+            if (bytesPerPixel == 3)
+            {
+                int need = width * height * 3;
+                if (data.Length < need)
+                    return null;
+
+                Bitmap bmp = new Bitmap(width, height, PixelFormat.Format24bppRgb);
+                BitmapData bmpData = bmp.LockBits(
+                    new Rectangle(0, 0, width, height),
+                    ImageLockMode.WriteOnly,
+                    PixelFormat.Format24bppRgb);
+                try
+                {
+                    int dstStride = bmpData.Stride;
+                    int srcStride = width * 3;
+                    for (int y = 0; y < height; y++)
+                    {
+                        Marshal.Copy(data, y * srcStride, IntPtr.Add(bmpData.Scan0, y * dstStride), srcStride);
+                    }
+                }
+                finally
+                {
+                    bmp.UnlockBits(bmpData);
+                }
+
+                return bmp;
+            }
+
+            // 그레이스케일
+            if (data.Length < width * height)
+                return null;
+
+            Bitmap grayBmp = new Bitmap(width, height, PixelFormat.Format8bppIndexed);
+            ColorPalette cp = grayBmp.Palette;
             for (int i = 0; i < 256; i++) cp.Entries[i] = Color.FromArgb(i, i, i);
-            bmp.Palette = cp;
+            grayBmp.Palette = cp;
 
-            BitmapData bmpData = bmp.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, PixelFormat.Format8bppIndexed);
-            Marshal.Copy(data, 0, bmpData.Scan0, data.Length);
-            bmp.UnlockBits(bmpData);
+            BitmapData grayData = grayBmp.LockBits(
+                new Rectangle(0, 0, width, height),
+                ImageLockMode.WriteOnly,
+                PixelFormat.Format8bppIndexed);
+            Marshal.Copy(data, 0, grayData.Scan0, width * height);
+            grayBmp.UnlockBits(grayData);
 
-            return bmp;
+            return grayBmp;
         }
 
         public void SaveCurrentFrame()
@@ -103,7 +220,8 @@ namespace PackVisionApp.Managers
                 Bitmap bmp = RawToBitmap(
                     _camEngine.LatestImageBuffer,
                     _camEngine.Width,
-                    _camEngine.Height);
+                    _camEngine.Height,
+                    _camEngine.BytesPerPixel);
 
                 bmp?.Save(fullPath);
                 bmp?.Dispose();
@@ -138,7 +256,8 @@ namespace PackVisionApp.Managers
             return RawToBitmap(
                 _camEngine.LatestImageBuffer,
                 _camEngine.Width,
-                _camEngine.Height);
+                _camEngine.Height,
+                _camEngine.BytesPerPixel);
         }
 
     }
