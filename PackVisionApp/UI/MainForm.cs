@@ -549,6 +549,8 @@ namespace PackVisionApp.UI
 
 			imageViewCtrl.LoadBitmap((Bitmap)bmp.Clone());
 
+			TryApplyPersistedRoiFromFrame(bmp);
+
 			// 티칭 ROI 고정 모드에서는 CSRT 트래킹/ROI 갱신을 스킵해서
 			// 사용자가 잡아둔 ROI가 프레임마다 움직이지 않게 한다.
 			if (_packageTracker.IsTracking && !_freezeTaughtRois)
@@ -681,6 +683,23 @@ namespace PackVisionApp.UI
 						// 3개 ROI 티칭이 끝났으므로, 이후 프레임에서는 해당 ROI를 고정한다.
 						_freezeTaughtRois = true;
 
+						try
+						{
+							if (imageViewCtrl.HasImage)
+							{
+								RoiTeachPersistence.Save(
+									_packageImageRect,
+									_inspectionMgr.DateRatioRect,
+									_inspectionMgr.BarcodeRatioRect,
+									imageViewCtrl.ImagePixelWidth,
+									imageViewCtrl.ImagePixelHeight);
+							}
+						}
+						catch (Exception ex)
+						{
+							Debug.WriteLine("[ROI save] " + ex.Message);
+						}
+
 						// ROI가 모두 잡히면 검사 버튼 없이도 연속 검사 자동 시작(카메라가 RUN 중일 때)
 						TryStartContinuousInspect(showErrorDialogs: false, requirePreviewImage: false);
 					}
@@ -759,6 +778,52 @@ namespace PackVisionApp.UI
 		{
 			if (!imageViewCtrl.HasImage) return Rectangle.Empty;
 			return imageViewCtrl.ImageRectToClientRect(imageRect);
+		}
+
+		/// <summary>저장된 ROI가 있으면 첫 프레임(또는 이미지 로드)에서 트래커·검사 ROI를 복원합니다. 수동 티칭 중이면 건드리지 않습니다.</summary>
+		private void TryApplyPersistedRoiFromFrame(Bitmap frameSource)
+		{
+			if (frameSource == null || frameSource.Width <= 0 || frameSource.Height <= 0) return;
+			if (_packageTracker.IsTracking) return;
+			if (!RoiTeachPersistence.TryLoad(out RoiTeachPersistence.Snapshot? snap) || snap is null) return;
+
+			int w = frameSource.Width;
+			int h = frameSource.Height;
+			Rectangle pkg = RoiTeachPersistence.DenormalizePackage(snap, w, h);
+			if (pkg.Width < 5 || pkg.Height < 5) return;
+
+			RectangleF dateRatio = RoiTeachPersistence.DateRatio(snap);
+			RectangleF barcodeRatio = RoiTeachPersistence.BarcodeRatio(snap);
+			var mapper = new RoiMapper();
+			Rectangle dateAbs = Rectangle.Intersect(mapper.RatioToRect(dateRatio, pkg), pkg);
+			Rectangle barcodeAbs = Rectangle.Intersect(mapper.RatioToRect(barcodeRatio, pkg), pkg);
+			if (dateAbs.Width < 5 || dateAbs.Height < 5 || barcodeAbs.Width < 5 || barcodeAbs.Height < 5) return;
+
+			using (Bitmap init = (Bitmap)frameSource.Clone())
+				_packageTracker.SetTarget(init, pkg);
+
+			_packageTracker.SetDateRoi(dateAbs);
+			_packageTracker.SetBarcodeRoi(barcodeAbs);
+			_inspectionMgr.SetRoiRatios(pkg, dateAbs, barcodeAbs);
+
+			_packageImageRect = pkg;
+			_dateImageRect = dateAbs;
+			_barcodeImageRect = barcodeAbs;
+			_freezeTaughtRois = true;
+			_hasPrevTrackedRects = true;
+			_prevDateImageRect = dateAbs;
+			_prevBarcodeImageRect = barcodeAbs;
+
+			if (imageViewCtrl.HasImage)
+			{
+				_packageScreenRect = ImageRectToScreenRect(pkg);
+				_dateScreenRect = ImageRectToScreenRect(dateAbs);
+				_barcodeScreenRect = ImageRectToScreenRect(barcodeAbs);
+			}
+
+			imageViewCtrl.Invalidate();
+
+			TryStartContinuousInspect(showErrorDialogs: false, requirePreviewImage: false);
 		}
 
 		private void UpdateTrackedRois()
@@ -1709,6 +1774,8 @@ namespace PackVisionApp.UI
 						_originalFrame = BitmapConverter.ToBitmap(loaded.Clone());
 
 						imageViewCtrl.LoadMat(loaded);
+						if (_originalFrame != null)
+							TryApplyPersistedRoiFromFrame(_originalFrame);
 					}
 					catch (Exception ex)
 					{
