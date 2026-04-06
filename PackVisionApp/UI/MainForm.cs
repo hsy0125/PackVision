@@ -259,7 +259,7 @@ namespace PackVisionApp.UI
 			FormClosing += (_, _) => _inspectStage.Dispose();
 
 			// 기본값 세팅
-			txtDate.Text = "27-02-22 A3 F1";
+			txtDate.Text = "27-02-22 A2 F2";
 			txtBarcode.Text = "8 801062 628476";
 
 			// 카메라 이벤트
