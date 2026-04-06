@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Text;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -140,6 +141,14 @@ namespace PackVisionApp.UI
 		private static readonly Color UiText = Color.FromArgb(0xE8, 0xEC, 0xF2);
 		private static readonly Color UiMuted = Color.FromArgb(0x9A, 0xA4, 0xB8);
 		private const int ImagePanelFramePx = 2;
+		/// <summary>이미지 뷰 좌상단(검은 표시 영역 모서리)에 붙이는 여백.</summary>
+		private const int ImageOverlayCornerPad = 10;
+
+		/// <summary>이미지 뷰 좌상단 OK/NOK·검사율은 PaintOverlay로만 그립니다. (라벨은 UserControl 아래로 깔려 안 보이는 경우가 있음)</summary>
+		private string _imageHudVerdict = "대기";
+		private Color _imageHudVerdictColor = UiMuted;
+		private string _imageHudRatePercent = "0%";
+		private const float ImageHudFontPt = 60F;
 
 	// OCR 값 안정화 헬퍼
 	private string GetBarcodeNorm(string raw)
@@ -250,7 +259,7 @@ namespace PackVisionApp.UI
 			FormClosing += (_, _) => _inspectStage.Dispose();
 
 			// 기본값 세팅
-			txtDate.Text = "27-01-28";
+			txtDate.Text = "27-02-22 A3 F1";
 			txtBarcode.Text = "8 801062 628476";
 
 			// 카메라 이벤트
@@ -302,11 +311,14 @@ namespace PackVisionApp.UI
 			lblInspectionSummary.ForeColor = UiMuted;
 			lblInspectionCount.ForeColor = UiText;
 			lblInspectionRate.ForeColor = UiAccent;
-			lblInspectionRate.Font = new Font("맑은 고딕", 22F, FontStyle.Bold, GraphicsUnit.Point);
+			lblInspectionRate.Font = new Font("맑은 고딕", 44F, FontStyle.Bold, GraphicsUnit.Point);
 
-			lblResult.Font = new Font("맑은 고딕", 28F, FontStyle.Bold, GraphicsUnit.Point);
-			lblResult.ForeColor = UiMuted;
-			lblResult.BackColor = Color.Transparent;
+			// 좌상단 판정·검사율은 ImageViewCtrl.PaintOverlay에서 그림 (WinForms에서 라벨이 뷰어에 가려짐)
+			_imageHudVerdict = "대기";
+			_imageHudVerdictColor = UiMuted;
+			lblResult.Visible = false;
+			lblImageAccuracy.Visible = false;
+			imageViewCtrl.Invalidate();
 
 			// 가동: 시안 솔리드 / 정지: 다크 레드 악센트
 			StyleIndustrialSolidButton(btnRun, UiAccentGlow, Color.FromArgb(12, 20, 24), UiAccent);
@@ -454,9 +466,6 @@ namespace PackVisionApp.UI
 			imageViewCtrl.Top = f;
 			imageViewCtrl.Width = Math.Max(1, _imagePanel.Width - f * 2);
 			imageViewCtrl.Height = Math.Max(1, _imagePanel.Height - f * 2);
-
-			lblResult.Left = 20 + f;
-			lblResult.Top = 20 + f;
 
 			panelBottom.Left = margin;
 			panelBottom.Top = _imagePanel.Bottom + margin;
@@ -713,6 +722,31 @@ namespace PackVisionApp.UI
 			}
 
 			DrawLiveOverlayOnScreen(e.Graphics);
+			DrawImageHud(e.Graphics);
+		}
+
+		private void DrawImageHud(Graphics g)
+		{
+			TextRenderingHint prev = g.TextRenderingHint;
+			g.TextRenderingHint = TextRenderingHint.AntiAlias;
+			try
+			{
+				float pad = ImageOverlayCornerPad;
+				using Font font = new Font("맑은 고딕", ImageHudFontPt, FontStyle.Bold, GraphicsUnit.Point);
+				string verdict = string.IsNullOrEmpty(_imageHudVerdict) ? "대기" : _imageHudVerdict;
+				float y = pad;
+				using (Brush brush = new SolidBrush(_imageHudVerdictColor))
+					g.DrawString(verdict, font, brush, pad, y);
+				SizeF verdictH = g.MeasureString(verdict, font);
+				y += verdictH.Height + 4f;
+				string rate = string.IsNullOrEmpty(_imageHudRatePercent) ? "0%" : _imageHudRatePercent;
+				using (Brush brush = new SolidBrush(UiAccent))
+					g.DrawString(rate, font, brush, pad, y);
+			}
+			finally
+			{
+				g.TextRenderingHint = prev;
+			}
 		}
 
 		private Rectangle ScreenRectToImageRect(Rectangle screenRect)
@@ -1089,18 +1123,21 @@ namespace PackVisionApp.UI
 			UpdateInspectionRate();
 		}
 
-		private static void SetVerdictLabel(Label label, bool overallOk)
+		/// <summary>이미지 패널 좌상단 OK/NOK (30pt, PaintOverlay).</summary>
+		private void SetOverlayVerdictLabel(bool overallOk)
 		{
 			if (overallOk)
 			{
-				label.Text = "OK";
-				label.ForeColor = UiAccent;
+				_imageHudVerdict = "OK";
+				_imageHudVerdictColor = UiAccent;
 			}
 			else
 			{
-				label.Text = "NOK";
-				label.ForeColor = UiDanger;
+				_imageHudVerdict = "NOK";
+				_imageHudVerdictColor = UiDanger;
 			}
+
+			imageViewCtrl.Invalidate();
 		}
 
 		private void ResetJudgementHysteresis()
@@ -1120,7 +1157,7 @@ namespace PackVisionApp.UI
 				_lastAppliedOverallOk = result.IsOverallOk;
 				_verdictFlipStreak = 1;
 				_verdictFlipTowardOk = result.IsOverallOk;
-				SetVerdictLabel(lblResult, result.IsOverallOk);
+				SetOverlayVerdictLabel(result.IsOverallOk);
 				return;
 			}
 
@@ -1143,7 +1180,7 @@ namespace PackVisionApp.UI
 
 			_lastAppliedOverallOk = result.IsOverallOk;
 			_verdictFlipStreak = 0;
-			SetVerdictLabel(lblResult, result.IsOverallOk);
+			SetOverlayVerdictLabel(result.IsOverallOk);
 		}
 
 		private string NormalizeBarcodeForOverlay(string raw)
@@ -1760,14 +1797,12 @@ namespace PackVisionApp.UI
 			if (result.IsOverallOk)
 			{
 				_okInspectionCount++;
-				lblResult.Text = "OK";
-				lblResult.ForeColor = UiAccent;
+				SetOverlayVerdictLabel(true);
 				AddLogItem("OK", "-", result.ActualDate, result.ActualBarcode, UiAccentGlow);
 			}
 			else
 			{
-				lblResult.Text = "NOK";
-				lblResult.ForeColor = UiDanger;
+				SetOverlayVerdictLabel(false);
 				AddLogItem("NOK", result.FailReasonText,
 					result.ActualDate, result.ActualBarcode, UiDanger);
 			}
@@ -1938,6 +1973,8 @@ namespace PackVisionApp.UI
 			lblInspectionRate.Text = rate + "%";
 			lblInspectionCount.Text = "총 검사 개수";
 			lblInspectionSummary.Text = $"{_okInspectionCount}/{_totalInspectionCount}";
+			_imageHudRatePercent = rate + "%";
+			imageViewCtrl.Invalidate();
 		}
 
 		private void AddLogItem(string result, string reason,
