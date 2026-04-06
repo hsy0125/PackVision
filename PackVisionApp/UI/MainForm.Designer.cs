@@ -22,6 +22,7 @@ namespace PackVisionApp.UI
 			btnBarcodeRoi = new Button();
 			_imagePanel = new Panel();
 			lblResult = new Label();
+			lblImageAccuracy = new Label();
 			imageViewCtrl = new ImageViewCtrl();
 			txtDate = new TextBox();
 			btnDate = new Button();
@@ -102,8 +103,9 @@ namespace PackVisionApp.UI
 			// _imagePanel
 			// 
 			_imagePanel.AllowDrop = true;
-			_imagePanel.Controls.Add(lblResult);
 			_imagePanel.Controls.Add(imageViewCtrl);
+			_imagePanel.Controls.Add(lblResult);
+			_imagePanel.Controls.Add(lblImageAccuracy);
 			_imagePanel.Location = new Point(12, 115);
 			_imagePanel.Name = "_imagePanel";
 			_imagePanel.Size = new Size(1304, 449);
@@ -113,12 +115,25 @@ namespace PackVisionApp.UI
 			// 
 			lblResult.AutoSize = true;
 			lblResult.BackColor = Color.Transparent;
-			lblResult.Font = new Font("맑은 고딕", 36F, FontStyle.Bold, GraphicsUnit.Point, 129);
-			lblResult.Location = new Point(9, 16);
+			lblResult.Font = new Font("맑은 고딕", 60F, FontStyle.Bold, GraphicsUnit.Point, 129);
+			lblResult.Location = new Point(12, 12);
 			lblResult.Name = "lblResult";
 			lblResult.Size = new Size(337, 96);
 			lblResult.TabIndex = 3;
 			lblResult.Text = "대기";
+			lblResult.Visible = false;
+			// 
+			// lblImageAccuracy
+			// 
+			lblImageAccuracy.AutoSize = true;
+			lblImageAccuracy.BackColor = Color.Transparent;
+			lblImageAccuracy.Font = new Font("맑은 고딕", 60F, FontStyle.Bold, GraphicsUnit.Point, 129);
+			lblImageAccuracy.Location = new Point(12, 52);
+			lblImageAccuracy.Name = "lblImageAccuracy";
+			lblImageAccuracy.Size = new Size(80, 50);
+			lblImageAccuracy.TabIndex = 4;
+			lblImageAccuracy.Text = "0%";
+			lblImageAccuracy.Visible = false;
 			// 
 			// imageViewCtrl
 			// 
@@ -372,6 +387,7 @@ namespace PackVisionApp.UI
 		private Panel panelStatus;
 		private Button btnLogReset;
 		private Label lblResult;
+		private Label lblImageAccuracy;
 		private Label lblInspectionSummary;
 		private Label lblInspectionCount;
 		private Label lblInspectionRate;
