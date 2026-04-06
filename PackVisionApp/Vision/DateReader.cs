@@ -155,34 +155,57 @@ namespace PackVisionApp.Vision
             return new Rectangle(x, y, right - x, bottom - y);
         }
 
-        /// <summary>
-        /// 흑백 이진화
-        /// </summary>
-        private Bitmap ToBinary(Bitmap original)
-        {
-            Bitmap binary = new Bitmap(original.Width, original.Height);
+		/// <summary>
+		/// 흑백 이진화
+		/// </summary>
+		//private Bitmap ToBinary(Bitmap original)
+		//{
+		//    Bitmap binary = new Bitmap(original.Width, original.Height);
 
-            for (int y = 0; y < original.Height; y++)
-            {
-                for (int x = 0; x < original.Width; x++)
-                {
-                    Color c = original.GetPixel(x, y);
-                    int gray = (int)(c.R * 0.299 + c.G * 0.587 + c.B * 0.114);
+		//    for (int y = 0; y < original.Height; y++)
+		//    {
+		//        for (int x = 0; x < original.Width; x++)
+		//        {
+		//            Color c = original.GetPixel(x, y);
+		//            int gray = (int)(c.R * 0.299 + c.G * 0.587 + c.B * 0.114);
 
-                    if (gray < 195)
-                        binary.SetPixel(x, y, Color.Black);   // 글자
-                    else
-                        binary.SetPixel(x, y, Color.White);   // 배경
-                }
-            }
+		//            if (gray < 180)
+		//                binary.SetPixel(x, y, Color.Black);   // 글자
+		//            else
+		//                binary.SetPixel(x, y, Color.White);   // 배경
+		//        }
+		//    }
 
-            return binary;
-        }
+		//    return binary;
+		//}
 
-        /// <summary>
-        /// 그레이스케일 변환
-        /// </summary>
-        private Bitmap ToGrayscale(Bitmap original)
+		private Bitmap ToBinary(Bitmap original)
+		{
+			using (Mat src = BitmapConverter.ToMat(original))
+			using (Mat gray = new Mat())
+			using (Mat bin = new Mat())
+			{
+				if (src.Channels() == 3)
+					Cv2.CvtColor(src, gray, ColorConversionCodes.BGR2GRAY);
+				else if (src.Channels() == 4)
+					Cv2.CvtColor(src, gray, ColorConversionCodes.BGRA2GRAY);
+				else
+					src.CopyTo(gray);
+
+				// 약한 배경 얼룩을 조금 줄인 뒤 이진화
+				Cv2.GaussianBlur(gray, gray, new OpenCvSharp.Size(3, 3), 0);
+
+				// 점 글자 + 밝은 배경에 더 안정적
+				Cv2.Threshold(gray, bin, 0, 255, ThresholdTypes.Binary | ThresholdTypes.Otsu);
+
+				return BitmapConverter.ToBitmap(bin);
+			}
+		}
+
+		/// <summary>
+		/// 그레이스케일 변환
+		/// </summary>
+		private Bitmap ToGrayscale(Bitmap original)
         {
             Bitmap gray = new Bitmap(original.Width, original.Height);
 
@@ -244,16 +267,16 @@ namespace PackVisionApp.Vision
             if (string.IsNullOrEmpty(raw))
                 return "";
 
-            return raw
-                .Replace('O', '0')
-                .Replace('o', '0')
-                //.Replace('I', '1')
-                //.Replace('l', '1')
-                .Replace('Z', '2')
-                .Replace('S', '5')
-                .Replace('B', '8')
-                .Replace('g', '9')
-                .Replace('q', '9');
+            return raw;
+                //.Replace('O', '0')
+                //.Replace('o', '0')
+                ////.Replace('I', '1')
+                ////.Replace('l', '1')
+                //.Replace('Z', '2')
+                //.Replace('S', '5')
+                //.Replace('B', '8')
+                //.Replace('g', '9')
+                //.Replace('q', '9');
         }
 
         /// <summary>
@@ -332,33 +355,132 @@ namespace PackVisionApp.Vision
             return normalizedDate;
         }
 
-        /// <summary>
-        /// 네가 준 함수 그대로 유지
-        /// 절대 수정하지 않은 버전
-        /// </summary>
-        public static Mat PreprocessForDotTextOcr(Mat src)
+
+		/// <summary>
+		/// 네가 준 함수 그대로 유지
+		/// 절대 수정하지 않은 버전
+		/// </summary>
+		public static Mat PreprocessForDotTextOcr(Mat src)
+		{
+			if (src == null || src.Empty())
+				throw new ArgumentException("입력 이미지가 비어 있습니다.");
+
+			// --------------------------------
+			// 1. 노이즈 제거 (점 유지)
+			// --------------------------------
+			Cv2.MedianBlur(src, src, 3);
+
+			// --------------------------------
+			// 2. 🔥 가로선 제거 (핵심)
+			// --------------------------------
+			using (Mat kernelH = Cv2.GetStructuringElement(MorphShapes.Rect, new OpenCvSharp.Size(30, 1)))
+			{
+				Mat lines = new Mat();
+				Cv2.MorphologyEx(src, lines, MorphTypes.Open, kernelH);
+				Cv2.Subtract(src, lines, src);
+			}
+
+			// --------------------------------
+			// 3. 글자 연결 (dot → 문자화)
+			// --------------------------------
+			Mat connected = new Mat();
+			using (Mat kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new OpenCvSharp.Size(3, 3)))
+			{
+				Cv2.MorphologyEx(src, connected, MorphTypes.Close, kernel);
+			}
+
+			// --------------------------------
+			// 4. 잔여 노이즈 제거
+			// --------------------------------
+			RemoveBinaryArtifacts(connected);
+
+			return connected;
+		}
+
+		/// <summary>
+		/// 이진 잉크 노이즈 제거: 테두리 접촉, 극소 면적 점, 1~2px 두께의 긴 가로/세로 띠.
+		/// 날짜의 '.' 등은 보통 min변 ≥3 또는 면적이 커서 남김.
+		/// </summary>
+		private static void RemoveBinaryArtifacts(Mat bin)
         {
-            if (src == null || src.Empty())
-                throw new ArgumentException("입력 이미지가 비어 있습니다.");
+            if (bin == null || bin.Empty()) return;
 
-            // 4) 작은 노이즈 제거
-            Mat noiseRemoved = new Mat();
-            Mat openKernel = Cv2.GetStructuringElement(MorphShapes.Ellipse, new OpenCvSharp.Size(3, 3));
-            Cv2.MorphologyEx(src, noiseRemoved, MorphTypes.Close, openKernel);
+            using (Mat gray = new Mat())
+            {
+                if (bin.Channels() == 1)
+                    bin.CopyTo(gray);
+                else
+                    Cv2.CvtColor(bin, gray, ColorConversionCodes.BGR2GRAY);
 
-             
-            //Cv2.ImShow("noiseRemoved", noiseRemoved);
+                using (Mat inv = new Mat())
+                {
+                    Cv2.BitwiseNot(gray, inv);
+                    Cv2.FindContours(
+                        inv,
+                        out OpenCvSharp.Point[][] contours,
+                        out HierarchyIndex[] _,
+                        RetrievalModes.External,
+                        ContourApproximationModes.ApproxSimple);
 
+                    if (contours == null || contours.Length == 0)
+                        return;
 
-            // 5) 점들을 가로 방향으로 먼저 연결
-            Mat finalBin = new Mat();
-            Mat kernelH = Cv2.GetStructuringElement(MorphShapes.Rect, new OpenCvSharp.Size(3, 3));
-            Cv2.MorphologyEx(noiseRemoved, finalBin, MorphTypes.Close, kernelH);
+                    int w = gray.Width;
+                    int h = gray.Height;
+                    for (int i = 0; i < contours.Length; i++)
+                    {
+                        if (contours[i] == null || contours[i].Length == 0) continue;
 
-            //Cv2.ImShow("finalBin", finalBin);
+                        OpenCvSharp.Rect r = Cv2.BoundingRect(contours[i]);
+                        double area = Math.Abs(Cv2.ContourArea(contours[i]));
+                        int rw = r.Width;
+                        int rh = r.Height;
+                        int minSide = Math.Min(rw, rh);
+                        int maxSide = Math.Max(rw, rh);
 
-            return finalBin;
+                        bool erase = false;
+
+                        if (r.X <= 0 || r.Y <= 0 || r.X + rw >= w || r.Y + rh >= h)
+                            erase = true;
+                        else
+                        {
+                            foreach (OpenCvSharp.Point p in contours[i])
+                            {
+                                if (p.X <= 0 || p.Y <= 0 || p.X >= w - 1 || p.Y >= h - 1)
+                                {
+                                    erase = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!erase)
+                        {
+							// 모래알(면적 ≤5px, 한 변 ≤3)
+							//if (area >= 1 && area <= 5 && maxSide <= 3)
+							if (area < 8 && maxSide <= 2)
+								erase = true;
+                            // 위에 떠 있는 얇은 가로/세로 줄(두께 1~2, 길이 ≥10)
+                            else if (minSide <= 2 && maxSide >= 10)
+                                erase = true;
+                            // 한 줄 두께 1짜리 길쭉한 조각
+                            else if (area < 24 && minSide == 1 && maxSide >= 5)
+                                erase = true;
+                        }
+
+                        if (erase)
+                            Cv2.DrawContours(gray, contours, i, Scalar.All(255), thickness: -1);
+                    }
+                }
+
+                if (bin.Channels() == 1)
+                    gray.CopyTo(bin);
+                else
+                    Cv2.CvtColor(gray, bin, ColorConversionCodes.GRAY2BGR);
+            }
         }
+
+
 
         /// <summary>
         /// Bitmap -> Mat 변환
